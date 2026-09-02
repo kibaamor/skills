@@ -11,9 +11,10 @@ Place the primary file at the repository root. Add a nested `AGENTS.md` only whe
 Include, when evidenced:
 
 - A one-paragraph repository purpose and the locations of `CONTEXT.md` or `CONTEXT-MAP.md`, `ARCHITECTURE.md`, and `CODE-MAP.md`.
-- Commands agents must run for setup, focused tests, full tests, linting, type checking, building, or generated artifacts. Prefer manifest/config links when the command is obvious there.
+- Commands agents must run for setup, focused tests, full tests, linting, type checking, building, or generated artifacts. State the runnable invocation when selection, order, prerequisites, or failure handling are not obvious; otherwise link to its manifest or task definition.
 - Repository-specific coding and testing conventions that cannot be inferred cheaply from nearby code.
-- Boundaries or files that require special handling, including generated code, migrations, secrets, vendored content, and deployment configuration.
+- Actionable rules for generated code, migrations, secrets, vendored content, and deployment changes: state the trigger, required action, and completion check. Put file locations in `CODE-MAP.md` and design rationale in `ARCHITECTURE.md`.
+- Commands and completion checks that enforce architectural invariants documented in `ARCHITECTURE.md`; link to the invariant instead of repeating its rationale.
 - A completion contract: the checks required before reporting a change complete.
 
 Exclude:
@@ -21,7 +22,7 @@ Exclude:
 - Generic programming advice and instructions the agent follows by default.
 - Large directory trees, dependency inventories, or configuration copied from machine-readable files.
 - Domain definitions and architecture narratives; link to their owning documents.
-- Aspirational rules contradicted by the current repository unless clearly labelled as a migration target.
+- Aspirational rules and migration-target descriptions; put the target and rationale in `ARCHITECTURE.md`, and include in `AGENTS.md` only temporary actions an agent must perform while the migration is active.
 
 Suggested shape:
 
@@ -31,8 +32,7 @@ Suggested shape:
 ## Start Here
 ## Commands
 ## Working Agreements
-## Testing
-## Boundaries
+## Special Handling
 ## Completion
 ```
 
@@ -55,6 +55,10 @@ _Avoid_: <ambiguous or deprecated synonyms>
 ```
 
 Include only terms whose project-specific meaning matters. Choose one canonical term when synonyms compete. Group terms only when real domain clusters exist.
+
+For a small glossary, use one `## Language` section. When genuine domain clusters improve retrieval, replace it with descriptive sections such as `## Identity` or `## Content`; do not nest an empty `## Language` above them. Preserve canonical terms in their source language and explain them in the repository documentation's established language rather than inventing translations.
+
+Exclude source paths, module or table names, commands, runtime flows, protocols, and implementation-specific rules. A term may describe what a concept means, but not how the current system stores or processes it.
 
 For a single coherent domain, place `CONTEXT.md` at the repository root. For multiple bounded contexts, place each `CONTEXT.md` at the nearest stable root of its domain area and create a root `CONTEXT-MAP.md`.
 
@@ -99,10 +103,10 @@ Place it at the repository root. In a monorepo, describe system-wide boundaries 
 Include, when evidenced:
 
 - Scope, system purpose, users, and external systems.
-- Major components and their responsibilities, with links to their source roots or entry points.
+- Major components, their responsibilities, and their boundaries. Link to the relevant `CODE-MAP.md` section for detailed source navigation instead of repeating source-path lists.
 - Runtime interactions and principal data flows.
-- Persistence, messaging, deployment, and process boundaries that affect design or operations.
-- Dependency direction, ownership boundaries, and invariants a change must preserve.
+- Persistence, messaging, deployment, and process boundaries only where they affect system design; put operational procedures in `AGENTS.md` and concrete locations in `CODE-MAP.md`.
+- Dependency direction, ownership boundaries, and invariants a change must preserve, including the evidence or rationale that makes each constraint durable. Put enforcement commands and completion checks in `AGENTS.md`.
 - Important rationale and trade-offs that explain surprising structure. Link to ADRs when available.
 - Known architectural risks or intentional transitional states, clearly distinguished from the intended architecture.
 
@@ -134,8 +138,8 @@ Include, when evidenced:
 - Executable entry points and their roles.
 - Responsibility-bearing modules or packages, linked to their source roots.
 - High-value symbols or files that directly control important behavior.
-- The nearest focused tests for each mapped area.
-- Generated, vendored, migration, or configuration areas where the edit source differs from the visible output.
+- The nearest focused tests co-located with each mapped responsibility. Use a separate Test Infrastructure section only for shared test harnesses, fixtures, central test trees, or suites that do not belong to one responsibility.
+- Generated, vendored, migration, or configuration areas where the edit source differs from the visible output. Record where to edit and where output appears; put handling rules and commands in `AGENTS.md`.
 - Cross-cutting shared code only where it is a meaningful starting point for changes.
 
 Suggested shape:
@@ -146,7 +150,7 @@ Suggested shape:
 ## Entry Points
 ## Modules
 ## Shared Code
-## Tests
+## Test Infrastructure
 ## Generated And Special-Handling Areas
 ```
 
@@ -156,16 +160,16 @@ Prefer short responsibility-to-path entries:
 - **Order submission**: [handler](./src/orders/submit.ts), [focused tests](./test/orders/submit.test.ts)
 ```
 
-Exclude exhaustive directory trees, inventories of every file, low-value utility symbols, and architecture prose. Every linked path must exist. Remove stale entries during maintenance rather than retaining a historical map.
+Exclude exhaustive directory trees, inventories of every file, low-value utility symbols, architecture prose, and domain definitions. Reuse canonical responsibility names from `CONTEXT.md` without redefining them. Every linked path must exist. Remove stale entries during maintenance rather than retaining a historical map.
 
 ## Cross-Document Ownership
 
 | Knowledge | Owner |
 | --- | --- |
-| Agent commands, constraints, completion checks | `AGENTS.md` |
+| Runnable commands, actionable handling rules, invariant enforcement, completion checks | `AGENTS.md` |
 | Canonical domain terms and meanings | `CONTEXT.md` |
 | Domain boundaries and relationships | `CONTEXT-MAP.md` |
-| Components, runtime flows, technology constraints, rationale | `ARCHITECTURE.md` |
-| Source locations, entry points, change targets, nearby tests | `CODE-MAP.md` |
+| Components, runtime flows, design constraints, invariant rationale | `ARCHITECTURE.md` |
+| Source locations, entry points, edit and generated-output targets, nearby tests | `CODE-MAP.md` |
 | Durable individual design decisions | ADRs |
 | Exact scripts, versions, dependencies, schemas | Repository source and configuration |

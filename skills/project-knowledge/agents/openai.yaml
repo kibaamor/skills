@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Knowledge"
+  short_description: "Generate or refresh repository knowledge"
+  default_prompt: "Use $project-knowledge to generate or refresh repository knowledge for this workspace."

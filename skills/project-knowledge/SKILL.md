@@ -39,7 +39,7 @@ Create a compact, evidence-backed knowledge system that helps an agent act corre
 9. Report the mode, files created or updated, key evidence, remaining unknowns, and checks performed. Use this completion checklist:
    - Claims with available evidence are supported, and missing evidence is reported as an unknown.
    - Boundaries and terminology are consistent.
-   - Completion is blocked only by unresolved contradictions or broken local links; unavailable checks and missing evidence are reportable unknowns, not blockers.
+   - Completion is blocked only by contradictions that remain unresolved and unreported, or by broken local links; unavailable checks and missing evidence are reportable unknowns, not blockers.
 
 ## Editing Rules
 

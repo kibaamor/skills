@@ -69,6 +69,32 @@
         "The moved handler, renamed focused test, and worker entry point are linked",
         "Every CODE-MAP.md relative link resolves"
       ]
+    },
+    {
+      "id": 7,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Generate the complete project knowledge set, then validate the generated files against the skill's document contracts and quality checks. Correct any quality issue before reporting completion.",
+      "expected_output": "Produces an evidence-backed, internally consistent, maintainable knowledge set in which each document follows its intended responsibility and every mechanical check passes.",
+      "files": ["evals/files/best-practices.json"],
+      "expectations": [
+        "AGENTS.md records npm install from the repository root as the prerequisite that links workspace packages before tests",
+        "AGENTS.md records the runnable test, dependency-check, and generation invocations because their triggers and repository-root prerequisite matter, links package.json as their definition source, and includes observable completion checks",
+        "AGENTS.md tells agents to edit the invoice schema and run the generator instead of editing generated output, but leaves source and output navigation to CODE-MAP.md",
+        "The existing nested Billing AGENTS.md remains scoped to Billing, is preserved when supported by evidence, and is reconciled with the root operating guide",
+        "Each CONTEXT.md contains domain language without implementation paths, runtime flows, commands, or architecture decisions",
+        "CONTEXT-MAP.md exists for the distinct Ordering and Billing language, links every discovered context glossary, preserves the different meanings of Customer, and describes context relationships in domain rather than protocol terms",
+        "ARCHITECTURE.md describes component boundaries and the contracts dependency invariant with its transport-independence rationale, but does not duplicate enforcement commands or generated-file procedures",
+        "ARCHITECTURE.md describes the container's Ordering process boundary evidenced by Dockerfile without copying its exact machine-readable command",
+        "Root ARCHITECTURE.md links the authoritative Billing package architecture document without duplicating or orphaning it",
+        "CODE-MAP.md maps responsibilities to existing entry points and co-locates their nearest focused tests without duplicating architecture prose",
+        "CODE-MAP.md maps packages/contracts as shared code and links its source without redefining Invoice",
+        "CODE-MAP.md records the shared fake clock under test infrastructure rather than attaching it to an unrelated responsibility",
+        "CODE-MAP.md links the invoice schema, generator, and generated output as navigation targets without repeating the handling procedure from AGENTS.md",
+        "Exact machine-readable script definitions, workspace membership, schemas, and dependencies are linked to repository sources rather than copied across knowledge documents",
+        "Every generated-code fact and architectural invariant has one owning knowledge document; other documents link to the owner instead of restating it",
+        "The undeclared markdownlint-cli2 executable is reported as an unavailable documentation check with its missing prerequisite rather than reported as passing",
+        "Unsupported claims are omitted or reported as specific unknowns, and terminology and component names agree across all generated files",
+        "Every relative Markdown link resolves with exact path casing and headings are unique within each document without skipped levels"
+      ]
     }
   ]
 }

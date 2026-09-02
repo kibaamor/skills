@@ -1,0 +1,27 @@
+{
+  "files": {
+    "package.json": "{\"private\":true,\"workspaces\":[\"services/*\",\"packages/*\"],\"scripts\":{\"test\":\"node --test services/*/test/*.test.js\",\"generate\":\"node tools/generate-client.js\",\"check:deps\":\"node tools/check-deps.js\",\"docs:lint\":\"markdownlint-cli2 **/*.md\"}}\n",
+    "README.md": "# Commerce Platform\n\nOrders accepts purchases. Billing issues invoices for accepted orders.\n",
+    "docs/engineering.md": "# Engineering\n\nRun `npm install` from the repository root before tests so npm links workspace packages. Services may import `packages/contracts`; `packages/contracts` must not import services so domain contracts remain transport-independent. Run `npm run check:deps` from the repository root after changing dependency direction. Files under `generated/` are generated from `schemas/`; edit the schema and run `npm run generate` from the repository root instead of editing generated output. The `docs:lint` script references an external CLI that is not declared by this repository.\n",
+    "Dockerfile": "FROM node:20\nCMD [\"node\", \"services/orders/app.js\"]\n",
+    "services/orders/package.json": "{\"name\":\"orders\",\"main\":\"app.js\"}\n",
+    "services/orders/README.md": "# Ordering\n\nCustomer means the shopper identity that places and tracks an Order.\n",
+    "services/orders/app.js": "module.exports = require('./orders');\n",
+    "services/orders/orders.js": "exports.acceptOrder = order => ({ ...order, status: 'accepted' });\n",
+    "services/orders/test/orders.test.js": "const test = require('node:test');\nconst assert = require('node:assert');\nconst { now } = require('../../../test/support/fake-clock');\nconst { acceptOrder } = require('../orders');\ntest('accepts orders', () => { assert.equal(acceptOrder({}).status, 'accepted'); assert.equal(now().getTime(), 0); });\n",
+    "services/billing/package.json": "{\"name\":\"billing\",\"main\":\"app.js\",\"scripts\":{\"test\":\"node --test test/*.test.js\"},\"dependencies\":{\"contracts\":\"*\"}}\n",
+    "services/billing/README.md": "# Billing\n\nCustomer means the legal party named on an Invoice and responsible for payment.\n",
+    "services/billing/AGENTS.md": "# Billing Guide\n\nAfter changing the Invoice schema used by Billing, run `npm run generate` from the repository root before running `npm test` in this package.\n",
+    "services/billing/ARCHITECTURE.md": "# Billing Architecture\n\nBilling maps accepted Order identifiers to Invoice records before returning the issued Invoice.\n",
+    "services/billing/app.js": "module.exports = require('./invoices');\n",
+    "services/billing/invoices.js": "const invoiceSchema = require('contracts');\nexports.issueInvoice = order => ({ schema: invoiceSchema.name, orderId: order.id, status: 'due' });\n",
+    "services/billing/test/invoices.test.js": "const test = require('node:test');\nconst assert = require('node:assert');\nconst { now } = require('../../../test/support/fake-clock');\nconst { issueInvoice } = require('../invoices');\ntest('issues invoices', () => { assert.equal(issueInvoice({ id: 1 }).status, 'due'); assert.equal(now().getTime(), 0); });\n",
+    "packages/contracts/package.json": "{\"name\":\"contracts\",\"main\":\"invoice.js\"}\n",
+    "packages/contracts/invoice.js": "module.exports = { name: 'Invoice' };\n",
+    "schemas/invoice.json": "{\"title\":\"Invoice\",\"type\":\"object\"}\n",
+    "tools/generate-client.js": "const fs = require('node:fs');\nconst schema = require('../schemas/invoice.json');\nfs.writeFileSync('generated/invoice-client.js', `module.exports = ${JSON.stringify(schema)};\\n`);\n",
+    "tools/check-deps.js": "process.exitCode = 0;\n",
+    "test/support/fake-clock.js": "exports.now = () => new Date(0);\n",
+    "generated/invoice-client.js": "module.exports = {\"title\":\"Invoice\",\"type\":\"object\"};\n"
+  }
+}
