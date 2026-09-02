@@ -12,27 +12,17 @@ A collection of agent skills. Each skill follows the [Agent Skills](https://agen
 
 Install all skills (agent-agnostic — auto-detects installed coding agents):
 
-```
+```bash
 npx skills add kibaamor/skills --all
 ```
 
 Variants:
 
-```
+```bash
 npx skills add kibaamor/skills --list                 # list available skills without installing
 npx skills add kibaamor/skills --skill project-knowledge  # install a specific skill
 npx skills add kibaamor/skills -g                     # install globally (across projects); project scope is default
 ```
-
-## Kilo Code
-
-Modern Kilo reads `~/.kilo/skills/` and the open-standard `~/.agents/skills/` by default. The `skills` CLI's `kilo` target installs to the older `~/.kilocode/skills/`, which Kilo ignores — so install to `~/.agents/skills/` instead:
-
-```
-npx skills add kibaamor/skills -s '*' -a cline -g -y
-```
-
-Then run `/reload` or start a new Kilo session. Verify with `npx skills add kibaamor/skills --list` first if unsure whether the `cline` agent still maps to `~/.agents/skills/`; if it has changed, substitute another agent in the same group (e.g. `zed`, `warp`).
 
 ## Adding a skill
 
