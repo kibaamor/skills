@@ -1,0 +1,15 @@
+{
+  "files": {
+    "package.json": "{\"private\":true,\"workspaces\":[\"packages/*\"]}\n",
+    "packages/payments/package.json": "{\"name\":\"payments\",\"main\":\"index.js\"}\n",
+    "packages/payments/index.js": "exports.capture = payment => payment;\n",
+    "packages/refunds/package.json": "{\"name\":\"refunds\",\"main\":\"index.js\"}\n",
+    "packages/refunds/index.js": "exports.refund = payment => payment;\n",
+    "AGENTS.md": "# Repository Guide\n",
+    "CONTEXT-MAP.md": "# Context Map\n\n## Contexts\n\n- [Payments](./packages/legacy-payments/CONTEXT.md): captures funds\n- [Refunds](./packages/refunds/CONTEXT.md): returns captured funds\n",
+    "packages/payments/CONTEXT.md": "# Payments\n\n## Language\n\n**Payment**:\nFunds captured for a purchase.\n",
+    "packages/refunds/CONTEXT.md": "# Refunds\n\n## Language\n\n**Refund**:\nFunds returned from a captured payment.\n",
+    "ARCHITECTURE.md": "# Architecture\n\nPayments and refunds are separate packages. The Payments team owns refund policy.\n",
+    "CODE-MAP.md": "# Code Map\n\n- **Payments**: [package](./packages/legacy-payments/index.js)\n- **Refunds**: [package](./packages/refunds/index.js)\n"
+  }
+}

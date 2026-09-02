@@ -1,0 +1,13 @@
+{
+  "files": {
+    "package.json": "{\"name\":\"payments\",\"main\":\"src/app.js\",\"scripts\":{\"test\":\"node --test\",\"worker\":\"node src/workers/reconcile.js\"}}\n",
+    "src/app.js": "module.exports = require('./payments/handler-v2');\n",
+    "src/payments/handler-v2.js": "exports.capturePayment = payment => ({ ...payment, state: 'captured' });\n",
+    "src/workers/reconcile.js": "exports.reconcile = payments => payments.filter(payment => payment.state === 'captured');\n",
+    "test/payments/handler-v2.test.js": "const test = require('node:test');\nconst assert = require('node:assert');\nconst { capturePayment } = require('../../src/payments/handler-v2');\ntest('captures', () => assert.equal(capturePayment({}).state, 'captured'));\n",
+    "AGENTS.md": "# Repository Guide\n\nRun `npm test` before completion.\n",
+    "CONTEXT.md": "# Payments\n\n## Language\n\n**Payment**:\nFunds transferred for a purchase.\n",
+    "ARCHITECTURE.md": "# Architecture\n\nPayment capture is synchronous. Settlement policy is reviewed quarterly.\n",
+    "CODE-MAP.md": "# Code Map\n\n## Entry Points\n\n- **HTTP entry**: [app](./src/app.js)\n\n## Modules\n\n- **Payment capture**: [old handler](./src/payment-handler.js)\n\n## Tests\n\n- [old tests](./test/payment-handler.test.js)\n"
+  }
+}

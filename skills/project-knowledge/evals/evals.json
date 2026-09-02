@@ -1,0 +1,74 @@
+{
+  "skill_name": "project-knowledge",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Analyze that monorepo and generate the complete project knowledge set for coding agents. It contains deployable services with distinct domain language. Preserve useful documentation already present.",
+      "expected_output": "Creates an evidence-backed root AGENTS.md, CONTEXT-MAP.md, ARCHITECTURE.md, and CODE-MAP.md plus context-local glossaries where bounded contexts are real.",
+      "files": ["evals/files/monorepo.json"],
+      "expectations": [
+        "The output discovers packages from workspace configuration rather than documenting only the root manifest",
+        "CONTEXT-MAP.md links every generated context-local CONTEXT.md",
+        "ARCHITECTURE.md describes runtime structure while CODE-MAP.md maps concrete source and test paths",
+        "All local Markdown links resolve"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Create agent-facing project knowledge for this small single-service repository. The domain uses one coherent vocabulary and there are no existing knowledge documents.",
+      "expected_output": "Creates a concise single-context knowledge set without an unnecessary CONTEXT-MAP.md.",
+      "files": ["evals/files/single-service.json"],
+      "expectations": [
+        "A root CONTEXT.md is created",
+        "CONTEXT-MAP.md is not created",
+        "AGENTS.md contains repository-specific commands and completion checks",
+        "CODE-MAP.md points to real entry points and focused tests"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Its payment handlers and focused tests moved, and it gained a worker entry point. Refresh the existing project knowledge without rewriting unaffected hand-authored sections.",
+      "expected_output": "Performs a focused refresh based on structural changes and preserves unaffected supported content.",
+      "files": ["evals/files/refresh.json"],
+      "expectations": [
+        "Dead CODE-MAP.md paths are removed",
+        "The new worker entry point and renamed tests are linked",
+        "Unchanged knowledge documents are not rewritten",
+        "Existing human annotations supported by current code are preserved"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Generate AGENTS.md, CONTEXT.md, ARCHITECTURE.md, and CODE-MAP.md there. The fixture represents an empty repository with no source, manifests, entry points, tests, or maintained documentation.",
+      "expected_output": "Stops and reports insufficient evidence without fabricating project knowledge.",
+      "files": ["evals/files/empty.json"],
+      "expectations": [
+        "No project knowledge files are created",
+        "The result explicitly reports insufficient repository evidence"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Refresh all agent knowledge after its package split. Existing ARCHITECTURE.md contains a human-authored ownership statement that conflicts with current package boundaries and cannot be resolved from repository evidence.",
+      "expected_output": "Updates evidenced structural facts while surfacing the unresolved ownership contradiction instead of guessing or silently deleting it.",
+      "files": ["evals/files/conflict.json"],
+      "expectations": [
+        "The conflicting ownership claim is reported as a specific unknown",
+        "The human-authored statement is not silently replaced",
+        "All non-conflicting stale paths and boundaries are updated"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Update only CODE-MAP.md for the moved payment handler, renamed focused test, and new worker entry point. Leave all unaffected knowledge documents byte-for-byte unchanged.",
+      "expected_output": "Refreshes CODE-MAP.md only and validates its paths without rewriting the rest of the knowledge set.",
+      "files": ["evals/files/refresh.json"],
+      "expectations": [
+        "Only CODE-MAP.md changes; AGENTS.md, CONTEXT.md, and ARCHITECTURE.md remain byte-for-byte identical to the fixture inputs",
+        "Every stale CODE-MAP.md path is removed",
+        "The moved handler, renamed focused test, and worker entry point are linked",
+        "Every CODE-MAP.md relative link resolves"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "files": {
+    "package.json": "{\"name\":\"catalog\",\"main\":\"src/app.js\",\"scripts\":{\"test\":\"node --test\",\"lint\":\"eslint src test\"}}\n",
+    "README.md": "# Catalog\n\nA Product is an item offered for sale. A Listing publishes a Product to shoppers.\n",
+    "src/app.js": "const { publishListing } = require('./listings');\nmodule.exports = { publishListing };\n",
+    "src/listings.js": "exports.publishListing = product => ({ product, state: 'published' });\n",
+    "test/listings.test.js": "const test = require('node:test');\nconst assert = require('node:assert');\nconst { publishListing } = require('../src/listings');\ntest('publishes listings', () => assert.equal(publishListing({}).state, 'published'));\n"
+  }
+}
