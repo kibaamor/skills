@@ -12,6 +12,7 @@ Include, when evidenced:
 
 - A one-paragraph repository purpose and the locations of `CONTEXT.md` or `CONTEXT-MAP.md`, `ARCHITECTURE.md`, and `CODE-MAP.md`.
 - Commands agents must run for setup, focused tests, full tests, linting, type checking, building, or generated artifacts. State the runnable invocation when selection, order, prerequisites, or failure handling are not obvious; otherwise link to its manifest or task definition.
+- Repository-provided feedback paths for common or high-risk changes: how to start or isolate the relevant system, drive the behavior, inspect available UI, API, logs, metrics, or traces, and recognize success. Include only the non-obvious routing and completion conditions; link to the owning scripts and tools.
 - Repository-specific coding and testing conventions that cannot be inferred cheaply from nearby code.
 - Actionable rules for generated code, migrations, secrets, vendored content, and deployment changes: state the trigger, required action, and completion check. Put file locations in `CODE-MAP.md` and design rationale in `ARCHITECTURE.md`.
 - Commands and completion checks that enforce architectural invariants documented in `ARCHITECTURE.md`; link to the invariant instead of repeating its rationale.
@@ -104,7 +105,7 @@ Include, when evidenced:
 
 - Scope, system purpose, users, and external systems.
 - Major components, their responsibilities, and their boundaries. Link to the relevant `CODE-MAP.md` section for detailed source navigation instead of repeating source-path lists.
-- Runtime interactions and principal data flows.
+- Runtime interactions and principal data flows, including isolation and observability boundaries when they affect how changes can be validated.
 - Persistence, messaging, deployment, and process boundaries only where they affect system design; put operational procedures in `AGENTS.md` and concrete locations in `CODE-MAP.md`.
 - Dependency direction, ownership boundaries, and invariants a change must preserve, including the evidence or rationale that makes each constraint durable. Put enforcement commands and completion checks in `AGENTS.md`.
 - Important rationale and trade-offs that explain surprising structure. Link to ADRs when available.
@@ -138,6 +139,7 @@ Include, when evidenced:
 - Executable entry points and their roles.
 - Responsibility-bearing modules or packages, linked to their source roots.
 - High-value symbols or files that directly control important behavior.
+- Repository-provided drivers, observability configuration, and validation harnesses that are useful starting points for reproducing or verifying behavior.
 - The nearest focused tests co-located with each mapped responsibility. Use a separate Test Infrastructure section only for shared test harnesses, fixtures, central test trees, or suites that do not belong to one responsibility.
 - Generated, vendored, migration, or configuration areas where the edit source differs from the visible output. Record where to edit and where output appears; put handling rules and commands in `AGENTS.md`.
 - Cross-cutting shared code only where it is a meaningful starting point for changes.

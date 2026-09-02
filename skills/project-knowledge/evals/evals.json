@@ -91,9 +91,31 @@
         "CODE-MAP.md links the invoice schema, generator, and generated output as navigation targets without repeating the handling procedure from AGENTS.md",
         "Exact machine-readable script definitions, workspace membership, schemas, and dependencies are linked to repository sources rather than copied across knowledge documents",
         "Every generated-code fact and architectural invariant has one owning knowledge document; other documents link to the owner instead of restating it",
+        "AGENTS.md remains a concise map to deeper knowledge rather than expanding into a monolithic manual",
+        "For Ordering and Billing changes, an agent can navigate from the responsibility and controlling context to a focused test or repository check with an observable result",
+        "The contracts dependency rule is backed by the repository's mechanical dependency check rather than documented only as an aspirational convention",
         "The undeclared markdownlint-cli2 executable is reported as an unavailable documentation check with its missing prerequisite rather than reported as passing",
         "Unsupported claims are omitted or reported as specific unknowns, and terminology and component names agree across all generated files",
         "Every relative Markdown link resolves with exact path casing and headings are unique within each document without skipped levels"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Fully regenerate the complete project knowledge set. Treat existing prose as potentially stale and verify every operational, deployment, security, domain, and dependency claim against controlling repository evidence.",
+      "expected_output": "In Create mode, produces project knowledge that rejects planted misleading claims, reports unrunnable commands accurately, and keeps facts in their owning documents.",
+      "files": ["evals/files/adversarial-accuracy.json"],
+      "expectations": [
+        "The completion report identifies npm run coverage as unrunnable because its nested npm test script is absent, and AGENTS.md does not recommend it as a completion check",
+        "The completion report identifies that neither service declares a package test script, and AGENTS.md does not claim otherwise",
+        "ARCHITECTURE.md states that debug access remains enabled under the configured qcprod environment because shared/security.js compares env to the exact literal prod",
+        "AGENTS.md records the main-branch and SERVICE == jd-server deployment trigger; ARCHITECTURE.md records the fan-out to both downstream deploy pipelines",
+        "CONTEXT.md defines Partner as a temporary 7-day group of 2 to 6 players created in Recruiting status rather than preserving the stale permanent-pair README definition",
+        "ARCHITECTURE.md reports bidirectional cross-service coupling rather than presenting the first discovered import as the complete dependency direction",
+        "CODE-MAP.md links the actual metadata.xml, jdm_task_n_idip.xml, and jdm_IDIP_game.xml paths with exact casing",
+        "CONTEXT.md contains no source paths, service imports, environment names, commands, storage details, or deployment mechanics",
+        "CONTEXT-MAP.md is not created because multiple deployment services alone do not establish multiple domain languages",
+        "Machine-readable package, environment, port, script, and file inventories are omitted unless their scope and snapshot nature are explicit; evidenced domain cardinality is retained",
+        "Every unsupported high-risk statement is omitted or reported as a specific unknown"
       ]
     }
   ]

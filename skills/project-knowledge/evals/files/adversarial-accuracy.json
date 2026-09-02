@@ -1,0 +1,24 @@
+{
+  "files": {
+    "package.json": "{\"private\":true,\"workspaces\":[\"services/*\"],\"scripts\":{\"coverage\":\"nyc npm run test\",\"lint\":\"eslint .\"},\"devDependencies\":{\"eslint\":\"^9.0.0\",\"nyc\":\"^17.0.0\"}}\n",
+    "README.md": "# Dance Service\n\nPartner is a permanent pair relationship. Production uses the qcprod environment, where all debug access is disabled.\n",
+    "config/envs.js": "module.exports = { local: { env: 'local' }, qcprod: { env: 'qcprod' } };\n",
+    "shared/security.js": "exports.allowDebug = config => config.env !== 'prod';\n",
+    ".gitlab-ci.yml": "deploy:\n  rules:\n    - if: '$CI_COMMIT_BRANCH == \"main\" && $SERVICE == \"jd-server\"'\n  trigger:\n    include:\n      - local: services/server/deploy.yml\n      - local: services/socket/deploy.yml\n",
+    "services/server/deploy.yml": "deploy-server:\n  script: echo deploy server\n",
+    "services/socket/deploy.yml": "deploy-socket:\n  script: echo deploy socket\n",
+    "services/server/package.json": "{\"name\":\"jd-server\",\"main\":\"app.js\"}\n",
+    "services/server/app.js": "require('../socket/channel');\nmodule.exports = require('./partner');\n",
+    "services/server/partner.js": "exports.createPartner = players => { if (players.length < 2 || players.length > 6) throw new Error('Partner requires 2-6 players'); return { players, durationDays: 7, status: 'Recruiting' }; };\n",
+    "services/server/partner.test.js": "const test = require('node:test');\nconst assert = require('node:assert');\nconst { createPartner } = require('./partner');\ntest('creates temporary partner group', () => { const partner = createPartner([1, 2]); assert.equal(partner.durationDays, 7); assert.equal(partner.status, 'Recruiting'); });\n",
+    "services/socket/package.json": "{\"name\":\"jd-socket\",\"main\":\"channel.js\"}\n",
+    "services/socket/channel.js": "module.exports = require('../server/partner');\n",
+    "shared/qlog/metadata.xml": "<metadata/>\n",
+    "shared/idip-tasks/jdm_task_n_idip.xml": "<tasks/>\n",
+    "shared/idip-tasks/jdm_IDIP_game.xml": "<game/>\n",
+    "AGENTS.md": "# Repository Guide\n\nRun `npm run coverage` before completion. Both services have unit tests.\n",
+    "CONTEXT.md": "# Domain\n\n**Partner**: a permanent relationship between two players, stored by the server service.\n",
+    "ARCHITECTURE.md": "# Architecture\n\nqcprod disables debug access. Server is the only service that imports Socket. Deployment runs for every branch and triggers only Server.\n",
+    "CODE-MAP.md": "# Code Map\n\n- IDIP tasks: `services/server/jdm_task_n_idip.xml`\n- IDIP game: `shared/idip-tasks/jdm_idip_game.xml`\n- QLog metadata: `shared/qlog.js`\n"
+  }
+}
