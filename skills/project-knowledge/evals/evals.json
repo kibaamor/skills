@@ -190,6 +190,18 @@
         "No duplicate sections, context files, or reordered stable content appear"
       ],
       "failure_conditions": ["The second run changes wording, ordering, structure, document count, or supported claims without changed evidence"]
+    },
+    {
+      "id": 14,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Generate project knowledge for coding agents. Use Chinese for every generated knowledge document.",
+      "expected_output": "Creates the justified knowledge set with all explanatory prose and headings written in Chinese while preserving technical identifiers and canonical domain terms.",
+      "files": ["evals/files/single-service.json"],
+      "expectations": [
+        "Every generated knowledge document uses Chinese for headings, instructions, descriptions, and explanatory prose",
+        "Technical identifiers, commands, code symbols, file paths, and canonical domain terms remain exact rather than being translated",
+        "The completion report confirms that the requested output language was applied to every created or updated document"
+      ],
+      "failure_conditions": ["Any generated knowledge document contains unexplained English prose or the language request is applied to only part of the knowledge set"]
     }
   ]
 }

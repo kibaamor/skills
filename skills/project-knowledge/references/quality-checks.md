@@ -2,6 +2,13 @@
 
 Run this checklist after creating or updating project knowledge.
 
+## Request Contract
+
+- Every explicit user requirement for scope, output language, audience, detail, format, preservation, or named documents is recorded as a checkable constraint or reported as a specific conflict.
+- Every created or updated document satisfies every compatible request constraint. Language compliance covers headings and explanatory prose across the complete affected knowledge set, not a representative sample.
+- Code, commands, paths, identifiers, product names, and canonical domain terms retain their exact spelling unless the user explicitly requested translation.
+- In Refresh mode, supported human-authored meaning is preserved when presentation changes are explicitly requested; unrelated content remains unchanged.
+
 ## Evidence
 
 - Every named component, boundary, runtime interaction, datastore, and external dependency has a current repository source.
@@ -53,4 +60,4 @@ Run this checklist after creating or updating project knowledge.
 
 ## Final Reconciliation
 
-Read the generated files once in this order: root `AGENTS.md`; root `CONTEXT.md`, or `CONTEXT-MAP.md` followed by every discovered context glossary; root `ARCHITECTURE.md` followed by every authoritative package-level architecture document; `CODE-MAP.md`; then each nested `AGENTS.md` against the subtree it governs. Confirm that terminology, context names, component names, boundary descriptions, and source paths agree across all files. For each paragraph, identify one owner document; replace repeated facts in other documents with links.
+Read the generated files once in this order: root `AGENTS.md`; root `CONTEXT.md`, or `CONTEXT-MAP.md` followed by every discovered context glossary; root `ARCHITECTURE.md` followed by every authoritative package-level architecture document; `CODE-MAP.md`; then each nested `AGENTS.md` against the subtree it governs. Confirm that terminology, context names, component names, boundary descriptions, source paths, and request-contract presentation requirements agree across all files. For each paragraph, identify one owner document; replace repeated facts in other documents with links.

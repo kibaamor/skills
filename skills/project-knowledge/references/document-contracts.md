@@ -69,7 +69,7 @@ _Avoid_: <ambiguous or deprecated synonyms>
 
 Include only terms whose project-specific meaning matters. Choose one canonical term when synonyms compete. Group terms only when real domain clusters exist.
 
-For a small glossary, use one `## Language` section. When genuine domain clusters improve retrieval, replace it with descriptive sections such as `## Identity` or `## Content`; do not nest an empty `## Language` above them. Preserve canonical terms in their source language and explain them in the repository documentation's established language rather than inventing translations.
+For a small glossary, use one language-section heading written in the request contract's output language. When genuine domain clusters improve retrieval, replace it with descriptive sections such as identity or content; do not nest an empty language section above them. Preserve canonical terms in their source language. Explain them in the user's requested output language, or in the repository documentation's established language when none was requested.
 
 Exclude source paths, module or table names, commands, runtime flows, protocols, and implementation-specific rules. A term may describe what a concept means, but not how the current system stores or processes it.
 

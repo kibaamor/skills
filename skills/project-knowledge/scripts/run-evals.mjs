@@ -23,12 +23,19 @@ async function exists(file) {
 }
 
 function behaviorTask(test) {
+  const fixtureInstructions = test.files
+    .map(
+      (file) =>
+        `The current working directory is already an isolated temporary repository. Read ${file} and materialize every entry in its top-level "files" object relative to the current working directory. Perform the requested project-knowledge work in this current working directory; do not create another repository elsewhere.`
+    )
+    .join('\n')
+
   return {
     id: `behavior-${String(test.id).padStart(2, '0')}`,
     name: `Behavior ${test.id}: ${test.expected_output}`,
     tags: ['behavior'],
     inputs: {
-      prompt: test.prompt,
+      prompt: `${test.prompt}\n\nFixture setup:\n${fixtureInstructions}`,
       files: test.files.map((file) => ({ path: file })),
     },
     expected: {
@@ -42,8 +49,10 @@ function behaviorTask(test) {
         config: {
           model: 'gpt-5-mini',
           prompt: [
-            'Evaluate the final response and workspace artifacts against every requirement.',
-            'Pass only when all expectations hold and no failure condition occurs.',
+            'Evaluate the final response and the generated or updated project-knowledge documents in the current workspace against every requirement.',
+            'Project-knowledge documents are AGENTS.md, CONTEXT.md, CONTEXT-MAP.md, ARCHITECTURE.md, and CODE-MAP.md, including selected nested variants. Treat fixture source documents such as README.md as evidence, not generated output.',
+            'If all expectations hold and no failure condition occurs, call set_waza_grade_pass with concise evidence.',
+            'Otherwise, call set_waza_grade_fail with the unmet expectations and observed evidence.',
             `Expected output: ${test.expected_output}`,
             `Expectations: ${JSON.stringify(test.expectations)}`,
             `Failure conditions: ${JSON.stringify(test.failure_conditions)}`,
@@ -138,7 +147,9 @@ async function main() {
   const tasks = await loadTasks()
   if (args.includes('--list')) {
     for (const task of tasks) console.log(`${task.id}\t${task.name}`)
-    console.log(`\n${tasks.length} task(s): 13 behavior, 12 trigger`)
+    const behaviorCount = tasks.filter((task) => task.tags.includes('behavior')).length
+    const triggerCount = tasks.length - behaviorCount
+    console.log(`\n${tasks.length} task(s): ${behaviorCount} behavior, ${triggerCount} trigger`)
     return
   }
 
