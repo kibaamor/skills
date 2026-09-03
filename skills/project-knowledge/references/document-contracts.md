@@ -2,6 +2,18 @@
 
 Use these contracts as content guides, not rigid fill-in templates. Omit sections with no evidenced, durable information.
 
+## Document Selection
+
+Create or retain a document only when it meets its value test:
+
+- `AGENTS.md`: at least one repository-specific command, constraint, special-handling rule, completion check, or pointer to another selected knowledge document changes agent behavior.
+- `CONTEXT.md`: the repository uses project-specific terms whose meanings or boundaries are not safely recoverable from conventional names. Use one root glossary for one coherent language.
+- `CONTEXT-MAP.md`: at least two evidenced bounded contexts use distinct models or conflicting meanings. Multiple packages, services, teams, or directories alone do not qualify.
+- `ARCHITECTURE.md`: evidence establishes a non-obvious runtime flow, component or process boundary, dependency constraint, external-system boundary, persistence boundary, or durable design rationale useful for impact analysis.
+- `CODE-MAP.md`: at least two responsibility-bearing navigation targets exist, or an agent must distinguish an edit source from tests, generated output, deployment, or another non-obvious target.
+
+On refresh, preserve a selected document whose value test still holds. Remove a generated document that no longer meets its test only after relocating supported human-authored content to its proper owner; report the removal. Never create an empty placeholder.
+
 ## AGENTS.md
 
 `AGENTS.md` is the concise operating manual for coding agents. Instructions in a deeper directory apply to that subtree and may refine root guidance.

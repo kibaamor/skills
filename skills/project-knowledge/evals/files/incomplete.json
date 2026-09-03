@@ -1,0 +1,8 @@
+{
+  "files": {
+    "package.json": "{\"name\":\"job-runner\",\"main\":\"src/app.js\"}\n",
+    "README.md": "# Job Runner\n\nJobs may arrive from a queue. Deployment and storage are still being decided.\n",
+    "src/app.js": "const { processJob } = require('./processor');\nmodule.exports = { processJob };\n",
+    "src/processor.js": "const store = require('./store');\nexports.processJob = job => { store.record(job.id); return { ...job, status: 'processed' }; };\n"
+  }
+}

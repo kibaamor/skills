@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Materialize the attached repository fixture in a temporary directory. Analyze that monorepo and generate the complete project knowledge set for coding agents. It contains deployable services with distinct domain language. Preserve useful documentation already present.",
+      "prompt": "Materialize the attached reduced large-monorepo fixture in a temporary directory. Analyze the workspace and generate project knowledge for coding agents. It contains deployable services with distinct domain language. Preserve useful documentation already present.",
       "expected_output": "Creates an evidence-backed root AGENTS.md, CONTEXT-MAP.md, ARCHITECTURE.md, and CODE-MAP.md plus context-local glossaries where bounded contexts are real.",
       "files": ["evals/files/monorepo.json"],
       "expectations": [
@@ -11,7 +11,8 @@
         "CONTEXT-MAP.md links every generated context-local CONTEXT.md",
         "ARCHITECTURE.md describes runtime structure while CODE-MAP.md maps concrete source and test paths",
         "All local Markdown links resolve"
-      ]
+      ],
+      "failure_conditions": ["A workspace package is omitted, contexts are split by directory alone, or any generated link is invalid"]
     },
     {
       "id": 2,
@@ -23,7 +24,8 @@
         "CONTEXT-MAP.md is not created",
         "AGENTS.md contains repository-specific commands and completion checks",
         "CODE-MAP.md points to real entry points and focused tests"
-      ]
+      ],
+      "failure_conditions": ["An unnecessary context map is created or repository-specific commands and source paths are missing"]
     },
     {
       "id": 3,
@@ -35,7 +37,8 @@
         "The new worker entry point and renamed tests are linked",
         "Unchanged knowledge documents are not rewritten",
         "Existing human annotations supported by current code are preserved"
-      ]
+      ],
+      "failure_conditions": ["A stale path remains or an unaffected supported section changes"]
     },
     {
       "id": 4,
@@ -45,7 +48,8 @@
       "expectations": [
         "No project knowledge files are created",
         "The result explicitly reports insufficient repository evidence"
-      ]
+      ],
+      "failure_conditions": ["Any knowledge document or repository behavior is fabricated"]
     },
     {
       "id": 5,
@@ -56,7 +60,8 @@
         "The conflicting ownership claim is reported as a specific unknown",
         "The human-authored statement is not silently replaced",
         "All non-conflicting stale paths and boundaries are updated"
-      ]
+      ],
+      "failure_conditions": ["Unresolved intent is presented as current architecture, silently deleted, or allowed to block evidenced path updates"]
     },
     {
       "id": 6,
@@ -68,11 +73,12 @@
         "Every stale CODE-MAP.md path is removed",
         "The moved handler, renamed focused test, and worker entry point are linked",
         "Every CODE-MAP.md relative link resolves"
-      ]
+      ],
+      "failure_conditions": ["Any file other than CODE-MAP.md changes or a stale or invalid path remains"]
     },
     {
       "id": 7,
-      "prompt": "Materialize the attached repository fixture in a temporary directory. Generate the complete project knowledge set, then validate the generated files against the skill's document contracts and quality checks. Correct any quality issue before reporting completion.",
+      "prompt": "Materialize the attached medium multi-package repository fixture in a temporary directory. Generate the justified project knowledge set, then validate the generated files against the skill's document contracts and quality checks. Correct any quality issue before reporting completion.",
       "expected_output": "Produces an evidence-backed, internally consistent, maintainable knowledge set in which each document follows its intended responsibility and every mechanical check passes.",
       "files": ["evals/files/best-practices.json"],
       "expectations": [
@@ -97,11 +103,12 @@
         "The undeclared markdownlint-cli2 executable is reported as an unavailable documentation check with its missing prerequisite rather than reported as passing",
         "Unsupported claims are omitted or reported as specific unknowns, and terminology and component names agree across all generated files",
         "Every relative Markdown link resolves with exact path casing and headings are unique within each document without skipped levels"
-      ]
+      ],
+      "failure_conditions": ["Documents duplicate ownership, omit a high-value workflow, copy cheap machine-readable facts, or fail a mechanical check"]
     },
     {
       "id": 8,
-      "prompt": "Materialize the attached repository fixture in a temporary directory. Fully regenerate the complete project knowledge set. Treat existing prose as potentially stale and verify every operational, deployment, security, domain, and dependency claim against controlling repository evidence.",
+      "prompt": "Materialize the attached multi-service backend fixture in a temporary directory. Fully regenerate the justified project knowledge set. Treat existing prose as potentially stale and verify every operational, deployment, security, domain, and dependency claim against controlling repository evidence.",
       "expected_output": "In Create mode, produces project knowledge that rejects planted misleading claims, reports unrunnable commands accurately, and keeps facts in their owning documents.",
       "files": ["evals/files/adversarial-accuracy.json"],
       "expectations": [
@@ -116,7 +123,73 @@
         "CONTEXT-MAP.md is not created because multiple deployment services alone do not establish multiple domain languages",
         "Machine-readable package, environment, port, script, and file inventories are omitted unless their scope and snapshot nature are explicit; evidenced domain cardinality is retained",
         "Every unsupported high-risk statement is omitted or reported as a specific unknown"
-      ]
+      ],
+      "failure_conditions": ["Stale prose overrides controlling evidence, one discovered dependency is treated as complete, or an unrunnable command is recommended"]
+    },
+    {
+      "id": 9,
+      "prompt": "Materialize the attached repository fixture in a temporary directory, remove its existing root CONTEXT.md, then refresh project knowledge after the payment handler and focused test moved and a worker entry point was added. Preserve unaffected supported content.",
+      "expected_output": "Uses Refresh mode, recreates the missing context document from evidence, updates structurally stale entries, and reports the newly created document.",
+      "files": ["evals/files/refresh.json"],
+      "expectations": [
+        "The result explicitly states Refresh mode",
+        "A root CONTEXT.md is created from repository evidence and reported as newly created",
+        "Dead CODE-MAP.md paths are removed and the new worker entry point and renamed test are linked",
+        "Unaffected supported sections in the remaining knowledge documents are preserved"
+      ],
+      "failure_conditions": ["The missing document forces Create mode, is left absent without reason, or causes unrelated rewrites"]
+    },
+    {
+      "id": 10,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Existing project knowledge is present, but fully regenerate the complete knowledge set from current repository evidence while preserving supported human-authored claims.",
+      "expected_output": "Resolves the overlapping conditions in favor of Create mode and regenerates the full knowledge set without discarding supported human-authored input.",
+      "files": ["evals/files/best-practices.json"],
+      "expectations": [
+        "The result explicitly states Create mode",
+        "Every knowledge document is reconciled against current repository evidence",
+        "Supported human-authored constraints and nested guidance are preserved",
+        "Unsupported or contradicted claims are corrected or reported as specific unknowns"
+      ],
+      "failure_conditions": ["Refresh mode is chosen despite the explicit regeneration request or supported human guidance is discarded"]
+    },
+    {
+      "id": 11,
+      "prompt": "Materialize the attached legacy repository fixture in a temporary directory. Generate only useful project knowledge. The project has behavior-bearing code and a Makefile but no package manifest, and its README contains a stale persistence claim.",
+      "expected_output": "Discovers the executable and test paths without requiring a manifest, corrects the stale current-state claim, and reports the unresolved persistence dependency.",
+      "files": ["evals/files/legacy.json"],
+      "expectations": [
+        "Generation proceeds because executable code and build instructions provide sufficient evidence",
+        "AGENTS.md records the evidenced Makefile test command and its observable completion condition",
+        "CODE-MAP.md links the executable, behavior-bearing module, and focused test",
+        "No flat-file or database architecture is asserted because the persistence adapter is absent"
+      ],
+      "failure_conditions": ["The skill stops solely because no manifest exists or converts stale prose or a missing adapter into implemented architecture"]
+    },
+    {
+      "id": 12,
+      "prompt": "Materialize the attached incomplete, poorly documented repository fixture in a temporary directory. Build only the knowledge documents justified by current evidence and report gaps precisely.",
+      "expected_output": "Maps the verified processing path, avoids inventing the missing store and queue behavior, and omits documents that would contain only speculation.",
+      "files": ["evals/files/incomplete.json"],
+      "expectations": [
+        "The missing store module and absent focused tests are specific unknowns",
+        "The README's possible queue is not documented as an external dependency or runtime flow",
+        "Every created document passes its document-selection value test",
+        "CODE-MAP.md contains only paths that exist"
+      ],
+      "failure_conditions": ["A queue, datastore, test command, or architecture boundary is invented, or empty placeholder documents are created"]
+    },
+    {
+      "id": 13,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Generate project knowledge, capture the resulting file hashes, then run the same request again without changing repository evidence.",
+      "expected_output": "The second run converges: it reports Refresh mode and leaves every knowledge document byte-for-byte unchanged.",
+      "files": ["evals/files/single-service.json"],
+      "expectations": [
+        "The first run creates only documents justified by the contracts",
+        "The second run selects Refresh mode",
+        "All knowledge-document hashes are identical before and after the second run",
+        "No duplicate sections, context files, or reordered stable content appear"
+      ],
+      "failure_conditions": ["The second run changes wording, ordering, structure, document count, or supported claims without changed evidence"]
     }
   ]
 }
