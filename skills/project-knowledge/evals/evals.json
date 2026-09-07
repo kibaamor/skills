@@ -2,19 +2,6 @@
   "skill_name": "project-knowledge",
   "evals": [
     {
-      "id": 1,
-      "prompt": "Materialize the attached reduced large-monorepo fixture in a temporary directory. Analyze the workspace and generate project knowledge for coding agents. It contains deployable services with distinct domain language. Preserve useful documentation already present.",
-      "expected_output": "Creates an evidence-backed root AGENTS.md, CONTEXT-MAP.md, ARCHITECTURE.md, and CODE-MAP.md plus context-local glossaries where bounded contexts are real.",
-      "files": ["evals/files/monorepo.json"],
-      "expectations": [
-        "The output discovers packages from workspace configuration rather than documenting only the root manifest",
-        "CONTEXT-MAP.md links every generated context-local CONTEXT.md",
-        "ARCHITECTURE.md describes runtime structure while CODE-MAP.md maps concrete source and test paths",
-        "All local Markdown links resolve"
-      ],
-      "failure_conditions": ["A workspace package is omitted, contexts are split by directory alone, or any generated link is invalid"]
-    },
-    {
       "id": 2,
       "prompt": "Materialize the attached repository fixture in a temporary directory. Create agent-facing project knowledge for this small single-service repository. The domain uses one coherent vocabulary and there are no existing knowledge documents.",
       "expected_output": "Creates a concise single-context knowledge set without an unnecessary CONTEXT-MAP.md.",
@@ -202,6 +189,62 @@
         "The completion report confirms that the requested output language was applied to every created or updated document"
       ],
       "failure_conditions": ["Any generated knowledge document contains unexplained English prose or the language request is applied to only part of the knowledge set"]
+    },
+    {
+      "id": 15,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Refresh existing project knowledge after schema and generated output locations changed. Preserve unaffected supported content and distinguish source of truth from generated output.",
+      "expected_output": "Updates stale generated-code guidance and navigation by making the schema and generator the edit authority, removing obsolete generated paths, and preserving unrelated supported knowledge.",
+      "files": ["evals/files/source-truth.json"],
+      "expectations": [
+        "AGENTS.md states the generated-client handling rule and npm run generate command without owning concrete source or output paths",
+        "CODE-MAP.md links the current schema, generator, and generated sdk/order-client.js output with exact casing",
+        "The stale generated/order-client.js path is removed",
+        "The completion report identifies source-of-truth and generated-output classifications that affected the refresh",
+        "Unrelated supported repository guidance remains unchanged"
+      ],
+      "failure_conditions": ["Generated output is treated as the edit source, a stale generated path remains, or unaffected guidance is rewritten"]
+    },
+    {
+      "id": 16,
+      "prompt": "Materialize the attached repository fixture in a temporary directory. Generate project knowledge for coding agents. The repository uses competing prose names for the same concept and has too little evidence for a runtime architecture diagram.",
+      "expected_output": "Selects terminology from repository evidence, uses it consistently, and documents only evidenced architecture without forcing a diagram.",
+      "files": ["evals/files/terminology.json"],
+      "expectations": [
+        "CONTEXT.md selects Subscription as the canonical term because behavior-bearing code, tests, and schema use it",
+        "CONTEXT.md records Plan Membership and Account Plan only as avoided or ambiguous prose synonyms if they are mentioned",
+        "Generated documents use Subscription consistently for the concept and do not alternate synonyms for stylistic variety",
+        "ARCHITECTURE.md omits a Mermaid diagram or states only evidenced relationships in prose because topology evidence is minimal",
+        "No billing service, external system, datastore, or deployment topology is invented from README wording"
+      ],
+      "failure_conditions": ["Terminology varies between documents, a diagram invents unsupported topology, or README marketing language is treated as architecture"]
+    },
+    {
+      "id": 17,
+      "prompt": "Materialize the attached git-aware refresh fixture in a temporary directory. Initialize a Git repository, commit all files except ignored __changes__ files as the baseline, then apply the changes described in __changes__/README.md. Refresh project knowledge from the local Git diff with rename detection and preserve unaffected supported content.",
+      "expected_output": "Uses Git status, deleted paths, and rename evidence to update only stale knowledge after a handler/test move and worker addition.",
+      "files": ["evals/files/git-refresh.json"],
+      "expectations": [
+        "The completion report states Refresh mode and identifies Git diff or rename evidence used for the update",
+        "CODE-MAP.md removes the deleted src/payment-handler.js and test/payment-handler.test.js paths",
+        "CODE-MAP.md links src/payments/handler-v2.js, test/payments/handler-v2.test.js, and src/workers/reconcile.js",
+        "AGENTS.md keeps the supported npm test completion rule unchanged",
+        "ARCHITECTURE.md and CONTEXT.md are not rewritten when their supported facts are unaffected"
+      ],
+      "failure_conditions": ["The refresh ignores the Git rename/delete evidence, stale paths remain, or unaffected documents are regenerated"]
+    },
+    {
+      "id": 18,
+      "prompt": "Materialize the attached non-JavaScript repository fixture in a temporary directory. Generate project knowledge for coding agents without assuming npm, package.json, Node entry points, or JavaScript test conventions.",
+      "expected_output": "Discovers Python project structure, commands, entry points, tests, and domain language from Python-specific evidence without JavaScript assumptions.",
+      "files": ["evals/files/python-service.json"],
+      "expectations": [
+        "AGENTS.md records make test, its declared test-extra prerequisite, and the final python -m pytest invocation without mentioning npm, package.json, or node --test",
+        "CODE-MAP.md links pyproject.toml, src/shipments/api.py, src/shipments/model.py, and tests/test_model.py as applicable navigation targets",
+        "CONTEXT.md defines Shipment from Python source, tests, or README evidence without implementation paths",
+        "ARCHITECTURE.md documents only evidenced module relationships and does not invent deployment or external systems",
+        "All created documents pass their document-selection value tests"
+      ],
+      "failure_conditions": ["Any Node/npm convention is invented, Python entry points or tests are omitted, or unsupported architecture is asserted"]
     }
   ]
 }

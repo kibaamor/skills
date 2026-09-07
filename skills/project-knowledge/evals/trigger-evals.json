@@ -20,6 +20,14 @@
     "should_trigger": true
   },
   {
+    "query": "Refresh the repository knowledge docs and remove stale paths, stale commands, and obsolete architecture claims from the existing AGENTS.md, ARCHITECTURE.md, and CODE-MAP.md.",
+    "should_trigger": true
+  },
+  {
+    "query": "Regenerate project knowledge for this repo, but distinguish source-of-truth files from generated output and keep unsupported architecture out of the docs.",
+    "should_trigger": true
+  },
+  {
     "query": "Onboard coding agents to this repository and document what they need to know before changing any service.",
     "should_trigger": true
   },
@@ -44,7 +52,11 @@
     "should_trigger": false
   },
   {
-    "query": "Rename Customer to Account in one glossary entry.",
+    "query": "Write a human onboarding guide for new engineers without changing agent knowledge files.",
+    "should_trigger": false
+  },
+  {
+    "query": "Audit the existing documentation for quality issues and report findings only.",
     "should_trigger": false
   }
 ]

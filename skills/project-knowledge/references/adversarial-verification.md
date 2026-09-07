@@ -5,8 +5,8 @@ Apply these checks to the working evidence ledger.
 ## Commands
 
 - Trace every documented command through its complete script chain to the final executable.
-- Run the narrowest safe invocation when prerequisites are available. A safe invocation does not alter the working tree, write outside a temporary directory, mutate an external system, or make an authenticated network call.
-- Record an unverified chain, missing prerequisite, or unsafe invocation as a specific unknown.
+- Run the narrowest safe invocation when prerequisites and authorization are available.
+- Record an unverified chain, missing prerequisite, or unsafe side effect as a specific unknown.
 
 ## Gated Behavior
 

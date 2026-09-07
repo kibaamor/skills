@@ -1,0 +1,10 @@
+{
+  "files": {
+    "package.json": "{\"name\":\"subscriptions\",\"main\":\"src/app.js\",\"scripts\":{\"test\":\"node --test\"}}\n",
+    "README.md": "# Growth Platform\n\nMarketing calls a Subscription a Plan Membership. Sales calls it an Account Plan. Billing integration is planned for a later release.\n",
+    "src/app.js": "const { activateSubscription } = require('./subscription');\nmodule.exports = { activateSubscription };\n",
+    "src/subscription.js": "exports.activateSubscription = accountId => ({ accountId, type: 'Subscription', status: 'active' });\n",
+    "schemas/subscription.json": "{\"title\":\"Subscription\",\"type\":\"object\",\"required\":[\"accountId\",\"status\"]}\n",
+    "test/subscription.test.js": "const test = require('node:test');\nconst assert = require('node:assert');\nconst { activateSubscription } = require('../src/subscription');\ntest('activates Subscription', () => assert.equal(activateSubscription('a1').status, 'active'));\n"
+  }
+}

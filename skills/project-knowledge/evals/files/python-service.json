@@ -1,0 +1,11 @@
+{
+  "files": {
+    "pyproject.toml": "[project]\nname = \"shipments\"\nversion = \"0.1.0\"\n\n[project.scripts]\nshipments-api = \"shipments.api:main\"\n\n[project.optional-dependencies]\ntest = [\"pytest>=8\"]\n\n[tool.pytest.ini_options]\npythonpath = [\"src\"]\ntestpaths = [\"tests\"]\n",
+    "Makefile": "test:\n\tpython -m pytest\n",
+    "README.md": "# Shipments\n\nA Shipment is a package movement request. A Shipment is ready when it has an origin and destination.\n",
+    "src/shipments/__init__.py": "from .model import Shipment\n",
+    "src/shipments/api.py": "from .model import Shipment\n\ndef main():\n    return Shipment(origin='warehouse', destination='customer').ready\n",
+    "src/shipments/model.py": "from dataclasses import dataclass\n\n@dataclass\nclass Shipment:\n    origin: str\n    destination: str\n\n    @property\n    def ready(self) -> bool:\n        return bool(self.origin and self.destination)\n",
+    "tests/test_model.py": "from shipments import Shipment\n\ndef test_shipment_is_ready_with_origin_and_destination():\n    assert Shipment(origin='warehouse', destination='customer').ready\n"
+  }
+}

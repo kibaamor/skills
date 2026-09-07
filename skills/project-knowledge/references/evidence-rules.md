@@ -1,28 +1,36 @@
 # Evidence Rules
 
-Match evidence to the claim. Use this default order, moving lower only when higher-ranked evidence cannot answer the question:
+Use evidence that directly controls or demonstrates the claim. This order is a default, not a substitute for matching evidence to the question:
 
 1. Behavior-bearing source code.
-2. Build, dependency, and workspace configuration.
+2. Build, dependency, workspace, deployment, or runtime configuration.
 3. Focused tests and safe command results.
-4. Deployment and runtime configuration.
-5. Maintained repository documentation.
-6. Names and directory structure.
+4. Maintained repository documentation.
+5. Names and directory structure.
 
-Names and prose are leads, not proof of runtime behavior. A test proves only the behavior and environment it exercises. Configuration proves declared topology or intent only when the corresponding entry point or controlling condition agrees.
+Names and prose are leads, not proof of runtime behavior. Tests prove only the behavior and environment they exercise. Configuration proves declared behavior only when its entry point and controlling conditions agree.
+
+## Source Classification
+
+- **Source of truth**: directly controls behavior or structure, such as source code, schemas, manifests, build files, deployment definitions, or test harnesses.
+- **Generated**: produced from a source of truth. Document where to edit and where output appears.
+- **Derived**: reflects another artifact, such as a cache, report, lockfile, index, or diagram. Use it as a lead unless repository policy makes it authoritative for the claim.
+- **Duplicated**: repeats a fact controlled elsewhere. Verify it against the controlling source.
+- **Documentation-only intent**: records rationale, policy, ownership, or target architecture not established by current implementation. Label it as intent.
 
 ## Confidence
 
-- **Verified**: direct evidence appropriate to the claim was inspected. Record the exact source path or command result.
-- **Strong inference**: at least two independent sources support the claim, no counterexample was found in the stated search scope, and direct proof is unavailable. Label the inference in the ledger and avoid stronger wording in documents.
-- **Weak inference**: one indirect source or naming suggests the claim. Do not publish it as project knowledge; report it only when it identifies useful missing evidence.
-- **Unknown**: evidence is absent, contradictory, unsafe to execute, or outside the repository. State the claim, inspected evidence, and what would resolve it.
+- **Verified**: direct evidence appropriate to the claim was inspected.
+- **Strong inference**: at least two independent sources support the claim, direct proof is unavailable, and the stated search scope contains no counterexample.
+- **Weak inference**: one indirect source suggests the claim. Use it to guide inspection, not as published project knowledge.
+- **Unknown**: evidence is absent, contradictory, unsafe to obtain, or outside the repository. Report the claim, inspected evidence, and what would resolve it.
 
-Published current-state claims must be verified or strong inferences. Keep weak inferences and unknowns in the completion report, not in definitive architecture or operating instructions.
+Publish current-state claims only when verified or strongly inferred. State the support for strong inferences that affect architecture, workflow, or boundaries.
 
-## Conflicts
+## Conflicts and Scope
 
-- Current behavior, paths, commands, dependencies, and deployment conditions follow current controlling code or configuration over prose.
-- Human-authored rationale, policy, or intended ownership may describe intent that code cannot prove. Preserve it only when supported; when contradicted, label it as unresolved intent and report the implementation conflict.
-- When two sources of equal authority disagree, downgrade the claim to unknown rather than choosing the more convenient source.
-- A complete or absent claim requires a full search of its stated scope. Otherwise label the inventory representative.
+- For current behavior, prefer the source that controls that behavior over prose or derived artifacts.
+- When equal-authority sources disagree, report an unknown instead of choosing one.
+- Preserve contradicted human-authored rationale or ownership only as unresolved intent, with the implementation conflict.
+- Label an inventory `complete` only after searching its full stated scope; otherwise label it `representative`.
+- In Refresh mode, use Git history and diffs to locate changes, then verify claims against current source and configuration.

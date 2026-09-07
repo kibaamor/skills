@@ -4,7 +4,7 @@ Generate or refresh compact, evidence-backed repository knowledge for coding age
 
 ## Use The Skill
 
-Invoke `/project-knowledge` in VS Code Chat, or ask Copilot to generate, refresh, or synchronize project knowledge for the current repository. For a source-navigation-only update, explicitly request a `CODE-MAP.md`-only refresh.
+Invoke `/project-knowledge` in VS Code Chat, use `$project-knowledge` where the agent expects skill references, or ask Copilot to generate, refresh, or synchronize project knowledge for the current repository. For a source-navigation-only update, explicitly request a `CODE-MAP.md`-only refresh.
 
 Depending on the repository, the skill may create or update:
 
@@ -19,7 +19,7 @@ See [SKILL.md](./SKILL.md) for the workflow and [document contracts](./reference
 
 - `SKILL.md`: agent workflow and completion contract.
 - `references/`: evidence, document, verification, and quality rules.
-- `scripts/validate-knowledge.mjs`: deterministic Markdown link and heading validator.
+- `scripts/validate-knowledge.mjs`: deterministic Markdown link, heading, and basic Mermaid validator.
 - `scripts/run-evals.mjs`: Waza runner for behavior and trigger evaluations.
 - `evals/evals.json`: behavior scenarios and semantic expectations.
 - `evals/trigger-evals.json`: positive and negative invocation scenarios.
@@ -42,7 +42,15 @@ node ./skills/project-knowledge/scripts/validate-knowledge.mjs \
   <repository-root> AGENTS.md CONTEXT.md ARCHITECTURE.md CODE-MAP.md
 ```
 
-The validator exits with code `0` when all local links resolve with exact casing and headings are valid. It prints each violation and exits with code `1` otherwise.
+Include every selected or linked knowledge document, such as `CONTEXT-MAP.md`, context-local `CONTEXT.md` files, nested `AGENTS.md` files, and package-level architecture documents:
+
+```bash
+node ./skills/project-knowledge/scripts/validate-knowledge.mjs \
+  <repository-root> AGENTS.md CONTEXT-MAP.md services/billing/CONTEXT.md \
+  ARCHITECTURE.md services/billing/ARCHITECTURE.md CODE-MAP.md
+```
+
+The validator exits with code `0` when inline and reference-style local Markdown links resolve with exact casing, headings are valid, and Mermaid blocks declare a diagram type with balanced delimiters outside quoted text. It prints each violation and exits with code `1` otherwise. It does not enforce semantic document-selection, context-map completeness, command-definition, or source-of-truth checks.
 
 ## Run Evaluations
 
@@ -78,7 +86,7 @@ Additional arguments are forwarded to `waza run`; use `--trials 2` for repeated 
 
 ## View Results
 
-The runner prints a summary and the result paths. It replaces previous outputs under `evals/results/`:
+The runner prints a summary and the result paths. It replaces the previous latest outputs under `evals/results/`:
 
 - `latest.json`: complete scores, grader feedback, token usage, tool calls, and transcript.
 - `latest.junit.xml`: JUnit report when Waza produces one.
