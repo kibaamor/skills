@@ -64,7 +64,7 @@ async function behaviorTask(test) {
         config: {
           model: "gpt-5-mini",
           prompt: [
-            "Evaluate the final response and the generated or updated project-knowledge documents in the current workspace against every requirement.",
+            "Evaluate the final response and the generated or updated project-knowledge-generator documents in the current workspace against every requirement.",
             "Project-knowledge documents are AGENTS.md, CONTEXT.md, CONTEXT-MAP.md, ARCHITECTURE.md, and CODE-MAP.md, including selected nested variants. Treat fixture source documents such as README.md as evidence, not generated output.",
             "If all expectations hold and no failure condition occurs, call set_waza_grade_pass with concise evidence.",
             "Otherwise, call set_waza_grade_fail with the unmet expectations and observed evidence.",
@@ -116,9 +116,9 @@ async function writeSuite(directory, tasks) {
   await mkdir(tasksDir, { recursive: true });
 
   const suite = {
-    name: "project-knowledge-eval",
-    description: "Behavior and trigger evaluation for project-knowledge.",
-    skill: "project-knowledge",
+    name: "project-knowledge-generator-eval",
+    description: "Behavior and trigger evaluation for project-knowledge-generator.",
+    skill: "project-knowledge-generator",
     version: "1.0",
     config: {
       trials_per_task: 1,
@@ -185,7 +185,7 @@ async function main() {
   }
 
   const temporaryDir = await mkdtemp(
-    path.join(os.tmpdir(), "project-knowledge-evals-"),
+    path.join(os.tmpdir(), "project-knowledge-generator-evals-"),
   );
   const resultsDir = path.join(evalsDir, "results");
   const resultFile = path.join(resultsDir, "latest.json");

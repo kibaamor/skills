@@ -1,9 +1,9 @@
 ---
-name: project-knowledge
+name: project-knowledge-generator
 description: "Generate or refresh repository-wide knowledge for coding agents: operating guidance, domain language, architecture, and source navigation. Use for onboarding, structural-change synchronization, full regeneration, or CODE-MAP-only refreshes; not localized edits to one existing document."
 ---
 
-# Project Knowledge
+# Project Knowledge Generator
 
 Create a compact, evidence-backed knowledge system that helps agents find where to work, what to preserve, which source is authoritative, and how to validate a change. Treat `AGENTS.md` as the entry point, not the encyclopedia.
 

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Project Knowledge"
-  short_description: "Generate or refresh evidence-backed repository knowledge"
-  default_prompt: "Use $project-knowledge to generate or refresh evidence-backed repository knowledge for this workspace, preserving supported guidance and distinguishing source-of-truth files from generated output."

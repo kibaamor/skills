@@ -6,7 +6,7 @@ A collection of agent skills. Each skill follows the [Agent Skills](https://agen
 
 | Skill | Description |
 |---|---|
-| `project-knowledge` | Generate or refresh repository knowledge for coding agents (`AGENTS.md`, `CONTEXT.md`, `ARCHITECTURE.md`, `CODE-MAP.md`). Use when documenting or onboarding to a repo, or syncing knowledge after structural changes. |
+| `project-knowledge-generator` | Generate or refresh repository knowledge for coding agents (`AGENTS.md`, `CONTEXT.md`, `ARCHITECTURE.md`, `CODE-MAP.md`). Use when documenting or onboarding to a repo, or syncing knowledge after structural changes. |
 
 ## Install
 
@@ -20,7 +20,7 @@ Variants:
 
 ```bash
 npx skills add kibaamor/skills --list                 # list available skills without installing
-npx skills add kibaamor/skills --skill project-knowledge  # install a specific skill
+npx skills add kibaamor/skills --skill project-knowledge-generator  # install a specific skill
 npx skills add kibaamor/skills -g                     # install globally (across projects); project scope is default
 ```
 

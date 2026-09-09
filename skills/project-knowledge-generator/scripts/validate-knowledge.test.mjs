@@ -7,7 +7,7 @@ import test from "node:test";
 import { validateKnowledge } from "./validate-knowledge.mjs";
 
 test("accepts valid knowledge links and heading structure", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-generator-"));
   await mkdir(path.join(root, "src"));
   await writeFile(path.join(root, "src", "app.js"), "module.exports = {};\n");
   await writeFile(
@@ -19,7 +19,7 @@ test("accepts valid knowledge links and heading structure", async () => {
 });
 
 test("rejects missing heading anchors and invalid Mermaid blocks", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-generator-"));
   await writeFile(
     path.join(root, "ARCHITECTURE.md"),
     "# Architecture\n\n[Missing](#missing-section)\n\n```mermaid\nA --> [B\n```\n",
@@ -33,7 +33,7 @@ test("rejects missing heading anchors and invalid Mermaid blocks", async () => {
 });
 
 test("rejects missing links, duplicate headings, and skipped levels", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-generator-"));
   await writeFile(
     path.join(root, "CODE-MAP.md"),
     "# Code Map\n\n## Modules\n\n#### Missing\n\n## Modules\n\n[Handler](./src/Handler.js)\n",
@@ -51,7 +51,7 @@ test("rejects missing links, duplicate headings, and skipped levels", async () =
 });
 
 test("rejects duplicate GitHub-style heading anchors", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-generator-"));
   await writeFile(
     path.join(root, "AGENTS.md"),
     "# Repository Guide\n\n## API & UI\n\n## API UI\n",
@@ -63,7 +63,7 @@ test("rejects duplicate GitHub-style heading anchors", async () => {
 });
 
 test("handles encoded, external, image, and fenced links", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-generator-"));
   await mkdir(path.join(root, "docs"));
   await writeFile(path.join(root, "docs", "with space.md"), "# Details\n");
   await writeFile(path.join(root, "diagram.png"), "not really an image\n");
@@ -89,7 +89,7 @@ test("handles encoded, external, image, and fenced links", async () => {
 });
 
 test("rejects missing reference-style links", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-generator-"));
   await writeFile(
     path.join(root, "AGENTS.md"),
     "# Repository Guide\n\n[Missing]: ./missing.md\n",
@@ -101,7 +101,7 @@ test("rejects missing reference-style links", async () => {
 });
 
 test("ignores Mermaid delimiters inside quoted labels", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-generator-"));
   await writeFile(
     path.join(root, "ARCHITECTURE.md"),
     '# Architecture\n\n```mermaid\nflowchart LR\n  A["JSON {schema"] --> B\n```\n',
@@ -111,7 +111,7 @@ test("ignores Mermaid delimiters inside quoted labels", async () => {
 });
 
 test("accepts common Markdown links, anchors, and ignored examples", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-generator-"));
   await mkdir(path.join(root, "docs"));
   await mkdir(path.join(root, "src"));
   await writeFile(path.join(root, "docs", "guide(v2).md"), "# Guide\n");
@@ -142,7 +142,7 @@ test("accepts common Markdown links, anchors, and ignored examples", async () =>
 });
 
 test("rejects undefined reference links", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-generator-"));
   await writeFile(
     path.join(root, "AGENTS.md"),
     "# Repository Guide\n\n[Missing][missing-reference]\n",
@@ -154,7 +154,7 @@ test("rejects undefined reference links", async () => {
 });
 
 test("accepts Mermaid declarations and comments beyond a fixed allowlist", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-generator-"));
   await writeFile(
     path.join(root, "ARCHITECTURE.md"),
     "# Architecture\n\n```mermaid\nC4Context\n  %% Explain [legacy syntax\n  Person(user, User)\n```\n",
@@ -164,7 +164,7 @@ test("accepts Mermaid declarations and comments beyond a fixed allowlist", async
 });
 
 test("rejects unclosed Mermaid blocks", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-generator-"));
   await writeFile(
     path.join(root, "ARCHITECTURE.md"),
     "# Architecture\n\n```mermaid\nflowchart LR\n  A --> B\n",
@@ -176,7 +176,7 @@ test("rejects unclosed Mermaid blocks", async () => {
 });
 
 test("ignores YAML frontmatter when validating headings", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "project-knowledge-generator-"));
   await writeFile(
     path.join(root, "AGENTS.md"),
     "---\ntitle: Repository Guide\n---\n\n# Repository Guide\n",
