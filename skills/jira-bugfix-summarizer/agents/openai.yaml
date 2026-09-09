@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jira Bugfix Summarizer"
+  short_description: "Summarize fixed Jira issues for non-technical readers."
+  default_prompt: "Use $jira-bugfix-summarizer to summarize this fixed Jira issue."

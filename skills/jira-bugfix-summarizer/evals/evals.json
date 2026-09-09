@@ -1,0 +1,81 @@
+{
+  "skill_name": "jira-bugfix-summarizer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Use $jira-bugfix-summarizer to summarize Jira PAY-1842 \"订单支付成功后仍显示待支付\". Status: Fixed. User symptom: mobile users returned from WeChat Pay and still saw \"待支付\" on the order detail page until manually refreshing. Impact: Order Detail payment result page on iOS and Android app 6.18.0, after third-party payment callback; checkout submission and refund flows were not affected. Root cause: the callback processing wrote the paid state to the payment ledger, but the order summary publication step did not refresh the read model used by the app. Technical anchors: payment-callback worker, order_summary table, event type PaymentCaptured. Fix behavior: after payment capture, the worker republishes the order summary so the app receives \"已支付\" without a manual refresh. Server-only fix, no client update required. Fix records: landed commit 6f3a9c1b2d0e4f77889900112233445566778899 at git@gitlab.example.com:pay/order-service.git on release/2026-09-08; MR !481 reviewed it; pipeline 88901 passed. Validation: use an app 6.18.0 test account with WeChat Pay sandbox enabled, create an unpaid order, complete payment, return to order detail, expect status \"已支付\" and no duplicate payment button; also check a cancelled unpaid order still remains unpaid.",
+      "expected_output": "Produces a Chinese stakeholder summary with impact, process-level root cause, server-only fix behavior, one effective commit record, and executable validation suggestions.",
+      "expectations": [
+        "The final summary is in Chinese and follows the default Markdown heading structure",
+        "The opening paragraph describes the observed payment status issue and fixed outcome in non-technical language",
+        "Impact scope names the affected order detail payment-result flow, mobile app environment, and unaffected checkout submission and refund flows",
+        "Root cause explains the missing order summary publication after callback processing as a process or state-transfer issue before mentioning technical anchors",
+        "Fix content states the app now sees paid status without manual refresh and explicitly says no client update is required",
+        "Fix records include only the landed commit with a clickable GitLab commit link using short SHA display text and full SHA URL derived from the SSH remote",
+        "MR and pipeline records are not listed as 修复记录",
+        "Validation suggestions include prerequisites, ordered payment steps, expected result, reverse check for cancelled unpaid orders, and regression scope"
+      ],
+      "failure_conditions": [
+        "The answer writes Jira comments or claims to update Jira",
+        "The summary is primarily technical implementation detail",
+        "Unconfirmed pipeline success is presented as user validation",
+        "Process-only records such as MR or pipeline are listed in 修复记录",
+        "Client update requirement is omitted"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Use $jira-bugfix-summarizer to summarize Jira CRM-902 \"客户标签未同步到列表\". Known facts: fixed status, user symptom was CRM web users did not see newly added customer tags in the customer list after saving profile changes. Root cause was the profile save path did not publish the tag index refresh event. Fix behavior was server-only and should refresh the list immediately. Available records: PR #774, code review CR-2031, CI build 5112. I do not know the final landed commit, deployment version, config publication, or effective data record.",
+      "expected_output": "Asks for the authoritative effective fix record before generating the summary because only process records are available.",
+      "expectations": [
+        "The response asks the user to confirm the final effective fix record before writing the summary",
+        "The question names acceptable record types such as landed commit, submitted source-control change, config publication, data effectuation, deployment version, or build version",
+        "The response does not produce the full default summary yet",
+        "The response does not list PR, code review, or CI build as 修复记录"
+      ],
+      "failure_conditions": [
+        "A final summary is generated despite missing effective fix records",
+        "PR, review, or CI records are treated as effective fix records",
+        "The response asks for unrelated implementation details instead of the missing authoritative record"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Use $jira-bugfix-summarizer to summarize Jira OPS-3317 \"灰度配置关闭后仍对部分门店生效\". Status: Fixed. User symptom: operations disabled the coupon grey-release switch, but selected stores could still issue the coupon. Impact: merchant operations console, coupon configuration page, production environment, publish-to-effective-config stage; coupon redemption was not affected. Root cause: the config publishing process retained the previous store allowlist when the switch was disabled, so the effective config still contained store-level eligibility. Technical anchors: coupon_grey_config, allow_store_ids. Fix behavior: disabling the switch now clears the allowlist before publishing effective config. Config-only change, no client update required. Records: Config Change production CFG-20260908-17 at https://config.example.com/changes/CFG-20260908-17 showing allow_store_ids cleared and enabled=false; deployment version deploy-2026.09.08-3 at https://deploy.example.com/apps/coupon-admin/releases/deploy-2026.09.08-3; Jira transition history; Slack approval. Validation: in production-like staging, enable coupon grey release for store A, publish, confirm store A can issue; disable switch, publish, confirm store A cannot issue while normal non-grey coupon issuance still works.",
+      "expected_output": "Summarizes a config-only fix and keeps only config publication and deployment version records as effective fix records.",
+      "expectations": [
+        "The final summary is in Chinese and uses neutral non-blaming wording",
+        "Impact distinguishes configuration publication from coupon redemption and notes redemption was not affected",
+        "Root cause explains retained allowlist during config publication in process terms",
+        "Fix content states the allowlist is cleared when the switch is disabled and explicitly says no client update is required",
+        "Fix records list the config change and deployment version as clickable links",
+        "Jira transition history and Slack approval are not listed as 修复记录",
+        "Validation suggestions cover enable, disable, expected blocked issuance for store A, and regression for normal non-grey coupon issuance"
+      ],
+      "failure_conditions": [
+        "The summary frames the root cause as an individual mistake",
+        "Jira transition or Slack approval is treated as an effective fix record",
+        "The validation section omits the reverse disabled-switch case"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Use $jira-bugfix-summarizer to summarize Jira APP-709 \"验证码输入页按钮无响应\". Status: Fixed. User symptom: on Android app 6.20.1, tapping \"下一步\" after entering a valid SMS code sometimes had no visible response. Impact: Android login SMS verification page during login; iOS and password login were not affected. Root cause: the Android client did not transfer the verified-code state from the input component to the submit action after the resend timer reset. Technical anchors: VerifyCodeViewModel, resend timer reset. Fix behavior: the submit action now reads the latest verified-code state after timer reset. Client-only fix, requires Android app 6.20.2 or later. Fix records: Android build version 6.20.2 at https://mobile.example.com/android/releases/6.20.2; commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa at https://gitlab.example.com/mobile/android/-/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; app store submission ticket STORE-812; QA test plan T-998. Validation: install Android 6.20.2, request SMS code, wait for resend timer to reset, enter valid code, tap next, expect login to continue; repeat with invalid code and expect error; verify iOS login still works.",
+      "expected_output": "Summarizes a client-only fix and clearly states the required Android app version while excluding submission and QA process records.",
+      "expectations": [
+        "The final summary is in Chinese and readable for non-technical stakeholders",
+        "Impact names Android SMS login verification and explicitly excludes iOS and password login",
+        "Root cause describes state transfer from input to submit action after timer reset without overloading the summary with code details",
+        "Fix content states Android app 6.20.2 or later is required",
+        "Fix records list only the Android build version and the landed commit as clickable links",
+        "App store submission ticket and QA test case are not listed as 修复记录",
+        "Validation suggestions include valid-code path, invalid-code reverse case, and iOS regression check"
+      ],
+      "failure_conditions": [
+        "The answer says no client update is required",
+        "The answer lists app store submission or QA case as an effective fix record",
+        "The answer claims 已验证通过 based only on the prompt's suggested validation facts"
+      ]
+    }
+  ]
+}

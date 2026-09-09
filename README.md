@@ -6,6 +6,7 @@ A collection of agent skills. Each skill follows the [Agent Skills](https://agen
 
 | Skill | Description |
 |---|---|
+| `jira-bugfix-summarizer` | Summarize an already diagnosed and fixed Jira issue for non-technical readers in Chinese, covering impact, root cause, fix behavior, effective fix records, and validation suggestions. |
 | `project-knowledge-generator` | Generate or refresh repository knowledge for coding agents (`AGENTS.md`, `CONTEXT.md`, `ARCHITECTURE.md`, `CODE-MAP.md`). Use when documenting or onboarding to a repo, or syncing knowledge after structural changes. |
 
 ## Install
@@ -20,6 +21,7 @@ Variants:
 
 ```bash
 npx skills add kibaamor/skills --list                 # list available skills without installing
+npx skills add kibaamor/skills --skill jira-bugfix-summarizer       # install a specific skill
 npx skills add kibaamor/skills --skill project-knowledge-generator  # install a specific skill
 npx skills add kibaamor/skills -g                     # install globally (across projects); project scope is default
 ```
