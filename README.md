@@ -1,32 +1,43 @@
-# skills
+# Skills
 
-A collection of agent skills. Each skill follows the [Agent Skills](https://agentskills.io) format and is installable with [`npx skills`](https://skills.sh).
+Agent skills in the [Agent Skills](https://agentskills.io) format, installable with [`npx skills`](https://skills.sh).
 
 ## Skills
 
 | Skill | Description |
-|---|---|
+| --- | --- |
 | `jira-bugfix-summarizer` | Summarize an already diagnosed and fixed Jira issue for non-technical readers in Chinese, covering impact, root cause, fix behavior, effective fix records, and validation suggestions. |
 | `project-knowledge-generator` | Generate or refresh repository knowledge for coding agents (`AGENTS.md`, `CONTEXT.md`, `ARCHITECTURE.md`, `CODE-MAP.md`). Use when documenting or onboarding to a repo, or syncing knowledge after structural changes. |
 
 ## Install
 
-Install all skills (agent-agnostic — auto-detects installed coding agents):
+Install every skill in this repository:
 
 ```bash
-npx skills add kibaamor/skills --all
+npx skills@latest add kibaamor/skills --all
 ```
 
 Variants:
 
 ```bash
-npx skills add kibaamor/skills --list                 # list available skills without installing
-npx skills add kibaamor/skills --skill jira-bugfix-summarizer       # install a specific skill
-npx skills add kibaamor/skills --skill project-knowledge-generator  # install a specific skill
-npx skills add kibaamor/skills -g                     # install globally (across projects); project scope is default
+npx skills@latest add kibaamor/skills --list                 # list available skills without installing
+npx skills@latest add kibaamor/skills --skill jira-bugfix-summarizer       # install a specific skill
+npx skills@latest add kibaamor/skills --skill project-knowledge-generator  # install a specific skill
 ```
 
-## Adding a skill
+## Troubleshooting
+
+### Global install reports a PromptScript error
+
+If a global install prints `github-copilot Agent detected — installing
+non-interactively` and then fails with `PromptScript does not support global
+skill installation`, run the command with Copilot environment variables unset:
+
+```bash
+env -u COPILOT_MODEL -u COPILOT_GITHUB_TOKEN npx skills@latest add kibaamor/skills -g
+```
+
+## Contributing a skill
 
 - Each skill lives at `skills/<name>/SKILL.md`.
 - `SKILL.md` frontmatter requires `name` (lowercase, hyphens, must equal the directory name) and `description`.
