@@ -10,12 +10,15 @@
 
 The source can be a landed Git commit containing the fix diff, a submitted source-control change record, a published config record, an effective data record, or a deployment/build version page that confirms where the fix took effect. Omit record types that do not exist.
 
-Do not list process records in `修复记录`, such as merge requests, reviews, temporary branches, draft changes, merge commits that only represent merge activity, pipeline runs, or unlanded pending changes. They can only be used as clues for finding the final effective result; if only process records are available, ask the user to confirm the final effective commit, source-control change record, config publication, data effectuation, or deployment/build version record.
+Do not list process records in `修复记录`, such as merge requests, reviews, temporary branches, draft changes, merge commits that only represent merge activity, pipeline runs, or unlanded pending changes. They can only be used as clues for finding the final effective result. If no fix record information is available, or only process records are available, ask the user to confirm the final effective commit, source-control change record, config publication, data effectuation, or deployment/build version record. Proceed without one only after the user explicitly agrees; in that case, do not list process records as substitutes.
+
+When the user explicitly agrees to continue without an effective fix record, write `暂无可引用的有效修复记录` in `修复记录` and state that the effective fix record could not be confirmed.
 
 ## Git
 
 - Prefer deriving the base URL from the Git remote. An SSH remote such as `git@gitlab.example.com:group/project.git` maps to `https://gitlab.example.com/group/project`.
-- Commit URL format: `<base-url>/-/commit/<full-sha>`; use the short SHA as display text and the full SHA in the link.
+- For GitLab, use commit URL format `<base-url>/-/commit/<full-sha>`. For GitHub, use `<base-url>/commit/<full-sha>`. For other providers, use a user-supplied or provider-specific authoritative commit URL.
+- Use the short SHA as display text and the full SHA in the link.
 - List only commits that have landed in the target branch or deployed version and contain the fix diff.
 - Do not list commits that only represent merge activity, review flow, or temporary synchronization.
 

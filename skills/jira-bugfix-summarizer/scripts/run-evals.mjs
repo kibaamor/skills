@@ -50,8 +50,8 @@ function behaviorTask(test) {
           model: "gpt-5-mini",
           prompt: [
             "Evaluate the assistant response against the jira-bugfix-summarizer skill requirements.",
-            "The skill must generate only summary text for already fixed Jira issues and must not submit, comment on, or write to Jira or external systems.",
-            "For behavior cases that lack an authoritative effective fix record, asking for the missing record is the correct completed task.",
+            "The skill must generate only summary text for already fixed Jira issues and must not create, update, edit, submit, comment on, or write to Jira, external systems, files, repositories, or any other resource.",
+            "For behavior cases that lack an authoritative effective fix record, asking for the missing record is the correct completed task unless the prompt says the user explicitly agrees to continue without one; after explicit agreement, generating the summary with the no-record fallback is correct.",
             "If all expectations hold and no failure condition occurs, call set_waza_grade_pass with concise evidence.",
             "Otherwise, call set_waza_grade_fail with the unmet expectations and observed evidence.",
             `Expected output: ${test.expected_output}`,

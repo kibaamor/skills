@@ -38,16 +38,41 @@ test("converts all behavior and trigger evals to Waza tasks", async () => {
       /requires Android app 6\.20\.2/.test(task.inputs.prompt),
     ),
   );
+  assert.ok(
+    behaviorTasks.some((task) =>
+      /订单备注保存后列表未刷新/.test(task.inputs.prompt),
+    ),
+  );
+  assert.ok(
+    behaviorTasks.some((task) =>
+      /通知开关关闭后仍发送提醒/.test(task.inputs.prompt),
+    ),
+  );
+  assert.ok(
+    behaviorTasks.some((task) =>
+      /账单状态更新后仍显示处理中/.test(task.inputs.prompt),
+    ),
+  );
   assert.match(
     behaviorTasks[0].graders[0].config.prompt,
-    /must not submit, comment on, or write to Jira/,
+    /must not create, update, edit, submit, comment on, or write to Jira, external systems, files, repositories, or any other resource/,
   );
   assert.match(
     behaviorTasks[1].graders[0].config.prompt,
-    /asking for the missing record is the correct completed task/,
+    /unless the prompt says the user explicitly agrees to continue without one/,
   );
   assert.equal(behaviorTasks[0].expected.should_trigger, true);
   assert.equal(triggerTasks[0].graders[0].type, "trigger");
   assert.equal(triggerTasks[0].expected.should_trigger, true);
+  assert.ok(
+    triggerTasks.some((task) =>
+      /Jira comment and post it to Slack/.test(task.inputs.prompt),
+    ),
+  );
+  assert.ok(
+    triggerTasks.some((task) =>
+      /update the release notes file/.test(task.inputs.prompt),
+    ),
+  );
   assert.equal(triggerTasks.at(-1).expected.should_trigger, false);
 });

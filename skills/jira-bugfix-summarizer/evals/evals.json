@@ -12,6 +12,7 @@
         "Root cause explains the missing order summary publication after callback processing as a process or state-transfer issue before mentioning technical anchors",
         "Fix content states the app now sees paid status without manual refresh and explicitly says no client update is required",
         "Fix records include only the landed commit with a clickable GitLab commit link using short SHA display text and full SHA URL derived from the SSH remote",
+        "Supplied technical identifiers such as payment-callback worker, order_summary, and PaymentCaptured are preserved verbatim when included",
         "MR and pipeline records are not listed as 修复记录",
         "Validation suggestions include prerequisites, ordered payment steps, expected result, reverse check for cancelled unpaid orders, and regression scope"
       ],
@@ -19,6 +20,7 @@
         "The answer writes Jira comments or claims to update Jira",
         "The summary is primarily technical implementation detail",
         "Unconfirmed pipeline success is presented as user validation",
+        "Supplied technical identifiers are translated, renamed, or rewritten",
         "Process-only records such as MR or pipeline are listed in 修复记录",
         "Client update requirement is omitted"
       ]
@@ -26,15 +28,15 @@
     {
       "id": 2,
       "prompt": "Use $jira-bugfix-summarizer to summarize Jira CRM-902 \"客户标签未同步到列表\". Known facts: fixed status, user symptom was CRM web users did not see newly added customer tags in the customer list after saving profile changes. Root cause was the profile save path did not publish the tag index refresh event. Fix behavior was server-only and should refresh the list immediately. Available records: PR #774, code review CR-2031, CI build 5112. I do not know the final landed commit, deployment version, config publication, or effective data record.",
-      "expected_output": "Asks for the authoritative effective fix record before generating the summary because only process records are available.",
+      "expected_output": "Asks for an authoritative effective fix record or explicit permission to continue without one before generating the summary.",
       "expectations": [
-        "The response asks the user to confirm the final effective fix record before writing the summary",
+        "The response asks the user to confirm the final effective fix record before writing the summary, and offers to continue without one only with explicit user agreement",
         "The question names acceptable record types such as landed commit, submitted source-control change, config publication, data effectuation, deployment version, or build version",
         "The response does not produce the full default summary yet",
         "The response does not list PR, code review, or CI build as 修复记录"
       ],
       "failure_conditions": [
-        "A final summary is generated despite missing effective fix records",
+        "A final summary is generated before the user explicitly agrees to continue without an effective fix record",
         "PR, review, or CI records are treated as effective fix records",
         "The response asks for unrelated implementation details instead of the missing authoritative record"
       ]
@@ -68,13 +70,139 @@
         "Root cause describes state transfer from input to submit action after timer reset without overloading the summary with code details",
         "Fix content states Android app 6.20.2 or later is required",
         "Fix records list only the Android build version and the landed commit as clickable links",
+        "Supplied technical identifiers such as VerifyCodeViewModel are preserved verbatim when included",
         "App store submission ticket and QA test case are not listed as 修复记录",
         "Validation suggestions include valid-code path, invalid-code reverse case, and iOS regression check"
       ],
       "failure_conditions": [
         "The answer says no client update is required",
         "The answer lists app store submission or QA case as an effective fix record",
+        "Supplied technical identifiers are translated, renamed, or rewritten",
         "The answer claims 已验证通过 based only on the prompt's suggested validation facts"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Use $jira-bugfix-summarizer to summarize Jira INV-221 \"库存同步延迟\". Status: Fixed. User symptom: warehouse users saw stale inventory after stock adjustments. Root cause: the adjustment publish step skipped the inventory projection refresh. Fix behavior: server-only, the projection is refreshed after each adjustment, no client update required. Fix records: landed commit 1234567890abcdef1234567890abcdef12345678 at git@github.com:example/inventory-service.git on main. Validation: adjust stock in staging and confirm the warehouse inventory page updates after refresh.",
+      "expected_output": "Asks for the missing impact scope before generating the summary.",
+      "expectations": [
+        "The response asks for impact scope details before writing the summary",
+        "The question asks for the affected feature, entry point, platform or environment, and workflow stage",
+        "The response does not produce the full default summary yet"
+      ],
+      "failure_conditions": [
+        "A final summary is generated despite missing impact scope",
+        "The response asks only for technical implementation details",
+        "The response treats the Jira status as a substitute for user-visible impact scope"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Use $jira-bugfix-summarizer to summarize Jira INV-222 \"导出库存报表缺少调拨数据\". Status: Fixed. User symptom: operations exported inventory reports and transfer-adjusted stock was missing. Impact: web operations console inventory report export, production-like staging, export generation stage; live inventory browsing was not affected. Root cause: the report export data publication step did not include transfer adjustment rows. Fix behavior: the export job now includes transfer adjustments in the published report dataset. Server-only fix, no client update required. Fix records: landed commit 1234567890abcdef1234567890abcdef12345678 at git@github.com:example/inventory-service.git on main; PR #92; CI run 781. Validation: create transfer adjustment data, export the report, expect the adjusted rows to appear; also verify live inventory browsing still matches current stock.",
+      "expected_output": "Summarizes the fixed Jira issue and formats the GitHub landed commit as the effective fix record.",
+      "expectations": [
+        "The final summary is in Chinese and follows the default Markdown heading structure",
+        "Fix records include only the landed GitHub commit with short SHA display text and a full GitHub /commit/ URL",
+        "PR and CI records are not listed as 修复记录",
+        "Fix content explicitly says no client update is required"
+      ],
+      "failure_conditions": [
+        "The GitHub commit link uses a GitLab-style /-/commit/ URL",
+        "PR or CI records are treated as effective fix records",
+        "Client update requirement is omitted"
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Use $jira-bugfix-summarizer to summarize Jira OPS-404 \"库存导出失败\". Status: Open. The issue is still under investigation and I cannot confirm it is fixed, but please write the final stakeholder summary anyway.",
+      "expected_output": "Declines in Chinese because the issue cannot be confirmed as fixed.",
+      "expectations": [
+        "The response is in Chinese",
+        "The response explains that this skill only summarizes already fixed issues",
+        "The response stops instead of generating the default summary"
+      ],
+      "failure_conditions": [
+        "A final bugfix summary is generated for the unfixed issue",
+        "The response invents root cause, fix behavior, fix records, or validation details",
+        "The response offers to create or update Jira"
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Use $jira-bugfix-summarizer to summarize Jira CRM-944 \"客户状态更新后列表仍显示旧状态\". Status: Fixed. User symptom: CRM users still see the old customer status in the customer list after saving the profile. However, the latest support note says the same stale status still reproduces in staging and the fix has not taken effect. Impact: CRM web customer profile save to customer list refresh stage. Root cause: the profile save path did not publish the customer list projection refresh. Fix behavior claimed: server-only refresh after save, no client update required. Fix records: landed commit bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb at git@gitlab.example.com:crm/customer-service.git on main. Validation: save a customer status change and expect the list to show the new status.",
+      "expected_output": "Asks the user to resolve the conflicting fixed-status facts before generating the summary.",
+      "expectations": [
+        "The response asks the user to resolve whether the issue is actually fixed",
+        "The response names the conflict between Fixed status and the latest note saying the stale status still reproduces or the fix has not taken effect",
+        "The response does not produce the full default summary yet"
+      ],
+      "failure_conditions": [
+        "A final summary is generated despite the unresolved fixed-status conflict",
+        "The response ignores the support note and treats Status: Fixed as sufficient",
+        "The response invents validation success or an effective fixed outcome"
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "Use $jira-bugfix-summarizer to summarize Jira CRM-903 \"客户标签未同步到列表\". Status: Fixed. User symptom: CRM web users did not see newly added customer tags in the customer list after saving profile changes. Impact: CRM web customer profile save to customer list refresh stage; customer detail display was not affected. Root cause: the profile save path did not publish the tag index refresh event. Fix behavior: server-only refreshes the list immediately after profile save, no client update required. Available records: PR #774, code review CR-2031, CI build 5112. I explicitly agree to continue without a final landed commit, deployment version, config publication, or effective data record. Validation: in staging, add a customer tag, save the profile, return to the customer list, expect the new tag to appear; verify customer detail still shows tags correctly.",
+      "expected_output": "Generates the summary using the no-effective-record fallback after explicit user agreement.",
+      "expectations": [
+        "The final summary is in Chinese and follows the default Markdown heading structure",
+        "The 修复记录 section contains 暂无可引用的有效修复记录",
+        "The summary states that the effective fix record could not be confirmed",
+        "PR, code review, and CI build records are not listed as 修复记录",
+        "Fix content explicitly says no client update is required"
+      ],
+      "failure_conditions": [
+        "The response asks again for an effective fix record despite explicit agreement to continue without one",
+        "PR, review, or CI records are treated as effective fix records",
+        "The missing effective fix record limitation is omitted",
+        "Client update requirement is omitted"
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "Use $jira-bugfix-summarizer to summarize Jira ORD-310 \"订单备注保存后列表未刷新\". User symptom: operations users saved an order note, but the order list still showed the old note until page refresh. Impact: web operations console order detail save to order list refresh stage; payment and fulfillment flows were not affected. Root cause: the note save path updated the order detail record but did not publish the order list projection refresh. Fix behavior: after note save, the server republishes the order list projection so the list shows the latest note. Fix records: landed commit cccccccccccccccccccccccccccccccccccccccc at git@gitlab.example.com:ops/order-console.git on main. Validation: save an order note in staging, return to the order list, expect the new note to appear; verify payment status display is unchanged.",
+      "expected_output": "Asks the user to confirm that the issue is already fixed before generating the summary.",
+      "expectations": [
+        "The response asks the user to confirm that the issue is already fixed before writing the summary",
+        "The response does not treat the landed commit as sufficient fixed-status confirmation by itself",
+        "The response does not produce the full default summary yet"
+      ],
+      "failure_conditions": [
+        "A final summary is generated despite missing fixed-status confirmation",
+        "The response assumes the issue is fixed from root cause, fix behavior, validation suggestions, or a commit record",
+        "The response asks only for technical implementation details instead of fixed-status confirmation"
+      ]
+    },
+    {
+      "id": 11,
+      "prompt": "Use $jira-bugfix-summarizer to summarize Jira NOTIF-612 \"通知开关关闭后仍发送提醒\". Status: Fixed. User symptom: account users disabled reminder notifications but still received one scheduled reminder. Impact: account settings notification switch, production-like staging, settings-save to scheduler-publication stage; email unsubscribe was not affected. Root cause: the settings save path updated the preference but did not publish the scheduler cancellation state. Fix behavior: after disabling reminders, the scheduler receives the cancellation state and stops future reminder jobs. Fix records: landed commit dddddddddddddddddddddddddddddddddddddddd at https://github.com/example/notification-service/commit/dddddddddddddddddddddddddddddddddddddddd. Validation: disable reminders in staging, wait for the scheduled reminder window, expect no reminder to be sent; verify email unsubscribe still works.",
+      "expected_output": "Asks whether a client update or new client build is required before generating the summary.",
+      "expectations": [
+        "The response asks whether the fix is server-only, client-only, config-only, data-only, or requires a new client build before writing the summary",
+        "The response does not guess the client update requirement from the affected feature or commit record",
+        "The response does not produce the full default summary yet"
+      ],
+      "failure_conditions": [
+        "A final summary is generated despite missing client update requirement",
+        "The response assumes no client update is required",
+        "The response omits the missing client update requirement"
+      ]
+    },
+    {
+      "id": 12,
+      "prompt": "Use $jira-bugfix-summarizer to summarize Jira BILL-778 \"账单状态更新后仍显示处理中\". Status: Fixed. User symptom: finance users saw a bill remain in processing state after the payment reconciliation completed. Impact: finance web billing list, production-like staging, reconciliation completion to billing list refresh stage; invoice export was not affected. Root cause: the reconciliation completion path did not publish the billing list projection refresh. Fix behavior: server-only refreshes the billing list projection after reconciliation completion, no client update required. Validation: complete reconciliation in staging, return to the billing list, expect the bill to show completed; verify invoice export still works.",
+      "expected_output": "Asks for an authoritative effective fix record or explicit permission to continue without one before generating the summary.",
+      "expectations": [
+        "The response asks the user to provide an effective fix record before writing the summary, and offers to continue without one only with explicit user agreement",
+        "The question names acceptable record types such as landed commit, submitted source-control change, config publication, data effectuation, deployment version, or build version",
+        "The response does not produce the full default summary yet"
+      ],
+      "failure_conditions": [
+        "A final summary is generated before the user explicitly agrees to continue without an effective fix record",
+        "The response assumes validation details or fixed status are a substitute for fix-record evidence",
+        "The response asks only for unrelated implementation details instead of the missing effective record"
       ]
     }
   ]

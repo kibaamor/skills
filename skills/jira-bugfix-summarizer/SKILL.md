@@ -1,28 +1,28 @@
 ---
 name: jira-bugfix-summarizer
-description: Summarize an already diagnosed and fixed Jira issue for non-technical readers, covering user impact, root cause, fix behavior, effective fix records, and validation suggestions.
+description: Summarize already fixed Jira issues in Chinese for non-technical stakeholders; use for impact, root cause, client-update needs, effective fix records, and validation suggestions, not for Jira comments, updates, or any resource changes.
 ---
 
 # Bugfix Summarizer
 
-Use this skill when the user asks for a summary of an already fixed Jira issue. Generate only the summary text; do not submit, comment on, or write to Jira or any external system.
+Use this skill when the user asks for a summary of an already fixed Jira issue. Generate only the summary text; do not create, update, edit, submit, comment on, or write to Jira, external systems, files, repositories, or any other resource. If the user asks to modify any resource, explain in Chinese that this skill only summarizes already fixed issues and stop.
 
-The target audience is non-technical stakeholders, and the final summary must be in Chinese. Explain the user-visible impact and process-level cause first, then add only the necessary technical anchors, fixed behavior, effective fix records, and suggested validation.
+The target audience is non-technical stakeholders, and the final summary must be in Chinese. Write all prose in Chinese, translating non-Chinese descriptive text by meaning; preserve literal technical identifiers verbatim, such as keys, IDs, function names, URLs, versions, branches, and environment names. Explain the user-visible impact and process-level cause before technical detail, then cover the fixed behavior, effective fix records, and suggested validation.
 
 ## Workflow
 
-1. Gather enough facts to cover the information checklist below.
-2. When key information is missing or cannot be confirmed, ask the user first; if the user explicitly cannot provide it, briefly note the limitation in the summary.
-3. Use the default structure unless the user requests another format.
-4. Before finishing, check that the summary uses functional process language, neutral non-blaming wording, proper Markdown paragraph spacing, clearly states any client update requirement, and includes clickable links to the effective fix records.
+1. Treat information supplied by the user or referenced records as facts unless explicit contrary evidence is available. If facts conflict, ask the user to resolve the conflict. Do not add unsupported facts.
+2. Before generating the summary, obtain enough facts to cover the checklist: confirmation that the issue is already fixed, user-visible symptom, impact scope, root-cause process step, changed behavior and affected layer, whether a client update or new build is required, and fix-record evidence or explicit agreement to continue without an effective record. Ask for any missing item and wait for the reply.
+3. For fix-record selection and the missing-record fallback, read [references/change-records.md](references/change-records.md) before generating the final summary.
+4. Use the default structure unless the user requests another layout. A custom layout must still cover impact, root cause, fix behavior, fix records, client update requirements, and validation.
 
 ## Information Checklist
 
-- Issue context: Jira key, title, current status, and user-visible symptom.
+- Issue context: use the Jira key, title, and status only to identify the issue and confirm that it is already fixed; describe the user-visible symptom rather than the Jira record or status. If fixed status is missing, ask the user to confirm that the issue is already fixed before continuing. If explicit evidence indicates that the issue is not fixed or the supplied facts conflict about whether it is fixed, ask the user to confirm the fix before continuing. If the user cannot or will not confirm that the issue is fixed, explain in Chinese that this skill only summarizes already fixed issues and stop.
 - Impact scope: affected feature, entry point, platform or environment, and workflow stage; when needed, mention adjacent flows that were not affected.
 - Root cause: the process decision, state transfer, or data publication step where the issue occurred; use technical terms only as anchors.
 - Fix behavior: the behavior after the fix, and whether the fix is server-only, client-only, config-only, data-only, or requires a new client build.
-- Fix records: authoritative records and URLs showing the effective changed result; do not list records that only describe submission, review, merge, or build process.
+- Fix records: records and URLs offered as evidence for the changed result; apply the fix-record reference rules before listing them.
 - Validation suggestions: prerequisites, steps, expected results, and reverse cases, recovery flows, or regression scenarios that should be covered.
 
 Do not present unconfirmed logs, test results, or validation status as facts. Write `已验证通过` only when it has actually been confirmed; otherwise write `建议验证`.
@@ -54,7 +54,7 @@ Do not present unconfirmed logs, test results, or validation status as facts. Wr
 
 ### 修复记录
 
-- `<Source/system> <branch/environment>`：[`<display ID>`](<URL showing the effective changed result>) - `<functional change description in Chinese>`
+<Write fix records using the selection, format, and no-record fallback in references/change-records.md.>
 
 ### 验证建议
 
@@ -79,15 +79,13 @@ Do not present unconfirmed logs, test results, or validation status as facts. Wr
 <State the related flows that should still work in Chinese.>
 ```
 
-When generating `修复记录`, read [references/change-records.md](references/change-records.md). Omit record types that do not exist; keep only entries that show the effective changed result.
-
 ## Writing Constraints
 
 - Use Markdown paragraph format correctly: separate headings, paragraphs, lists, and fix-record bullets with blank lines; do not collapse unrelated ideas into one paragraph.
 - Use heading levels to make the final summary readable: `##` for the overall summary title, `###` for major sections, and `####` for validation subsections.
 - Prefer prose paragraphs for summary, impact, root cause, and fix content. Use bullets only for fix records, and use short ordered lists inside validation subsections only when the user needs exact step order.
 - Use functional process language and minimize code-level wording; explain unavoidable technical terms by their user-visible meaning the first time they appear.
-- Keep only technical details that support the judgment, such as API names, error codes, config names, version numbers, service names, or data tables.
+- Include only supplied technical identifiers that materially disambiguate or support the impact, root cause, fix, record, or validation. Keep root-cause identifiers in the dedicated root-cause anchor paragraph; place versions, fix-record IDs, configuration prerequisites, and other execution-critical identifiers in their owning sections.
 - Make boundaries explicit, such as pre-check vs final submit, draft vs publish, client vs server, or source branch vs target branch.
 - When the distinction helps validation, describe the failing path separately from paths that already behaved correctly.
 - Write validation suggestions as executable steps: action plus expected result; when relevant, include recovery, reverse cases, and regression checks.

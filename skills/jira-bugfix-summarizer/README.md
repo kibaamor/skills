@@ -1,12 +1,12 @@
 # Jira Bugfix Summarizer
 
-Summarize an already diagnosed and fixed Jira issue for non-technical stakeholders in Chinese. The output focuses on user impact, process-level root cause, fixed behavior, effective fix records, and validation suggestions.
+Summarize an already diagnosed and fixed Jira issue for non-technical stakeholders in Chinese. The output focuses on user impact, process-level root cause, fixed behavior, effective fix records, and validation suggestions, and the skill does not modify Jira, files, external systems, or any other resource.
 
 ## Use the skill
 
-Invoke `/jira-bugfix-summarizer` in VS Code Chat, use `$jira-bugfix-summarizer` where the agent expects skill references, or ask the agent to summarize an already fixed Jira issue for business, product, or QA readers.
+In ChatGPT, select the skill with `@`. In Codex CLI or the IDE extension, run `/skills` or mention `$jira-bugfix-summarizer`. You can also ask the agent to summarize an already fixed Jira issue for business, product, or QA readers.
 
-Provide the Jira key, title, status, user-visible symptom, impact scope, root cause, fix behavior, effective fix records, and validation context when available. If only process records such as PRs, reviews, pipelines, or app store submissions are available, the skill should ask for the authoritative effective fix record before producing the final summary.
+Provide the Jira key, title, status, user-visible symptom, impact scope, root cause, fix behavior, effective fix records, and validation context when available. See [fix record rules](./references/change-records.md) for what counts as an effective record and how to handle missing records.
 
 See [SKILL.md](./SKILL.md) for the workflow and [fix record rules](./references/change-records.md) for what belongs in `修复记录`.
 
