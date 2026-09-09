@@ -1,9 +1,0 @@
-{
-  "files": {
-    "Makefile": "test:\n\tnode test/orders.test.js\n",
-    "README.md": "# Legacy Orders\n\nAccepted orders are persisted directly to flat files by the order module.\n",
-    "bin/server.js": "const { acceptOrder } = require('../lib/orders');\nmodule.exports = { acceptOrder };\n",
-    "lib/orders.js": "const store = require('./store');\nexports.acceptOrder = order => { const accepted = { ...order, status: 'accepted' }; store.save(accepted); return accepted; };\n",
-    "test/orders.test.js": "const assert = require('node:assert');\nconst Module = require('node:module');\nconst originalLoad = Module._load;\nModule._load = (request, parent, isMain) => request === './store' ? { save() {} } : originalLoad(request, parent, isMain);\nconst { acceptOrder } = require('../lib/orders');\nassert.equal(acceptOrder({ id: 1 }).status, 'accepted');\n"
-  }
-}
