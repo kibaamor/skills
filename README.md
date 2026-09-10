@@ -6,7 +6,7 @@ Agent skills in the [Agent Skills](https://agentskills.io) format, installable w
 
 | Skill | Description |
 | --- | --- |
-| `jira-bugfix-summarizer` | Summarize an already diagnosed and fixed Jira issue for non-technical readers in Chinese, covering impact, root cause, fix behavior, effective fix records, and validation suggestions. |
+| `jira-bugfix-summarizer` | Summarize an already fixed Jira bug for stakeholders, covering impact, root cause, fix, validation, and effective fix records; not for diagnosis, implementation, or Jira updates. |
 | `project-knowledge-generator` | Generate or refresh repository knowledge for coding agents (`AGENTS.md`, `CONTEXT.md`, `ARCHITECTURE.md`, `CODE-MAP.md`). Use when documenting or onboarding to a repo, or syncing knowledge after structural changes. |
 | `skill-reviewer` | Review and improve agent skills against skill-creation best practices, including activation scope, concrete expertise, calibrated control, validation loops, and progressive disclosure. |
 

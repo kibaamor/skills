@@ -1,35 +1,34 @@
 # Fix Records
 
-`Fix Records` must list only effective changed results. For each record, state the source, branch or scope, display ID, URL, and functional change description; do not expand implementation diffs.
+Load this file before writing `Fix Records`.
 
-## General Format
+List only effective changed results: landed fix commits, submitted source-control changes, published config/data changes, or build/deployment/version records that prove where the fix took effect.
+
+Do not list process artifacts: merge requests, reviews, pipeline runs, draft branches, merge-only commits, temporary branches, or pending changes.
+
+## Format
 
 ```markdown
-- `<Source/system> <branch/environment>`: [`<display ID>`](<URL showing the effective changed result>) - `<functional change description>`
+- `<Source> <branch/environment/scope>`: [`<display ID>`](<authoritative URL>) - `<functional change>`
 ```
 
-The source can be a landed Git commit containing the fix diff, a submitted source-control change record, a published config record, an effective data record, or a deployment/build version page that confirms where the fix took effect. Omit record types that do not exist.
-
-Do not list process records in `Fix Records`, such as merge requests, reviews, temporary branches, draft changes, merge commits that only represent merge activity, pipeline runs, or unlanded pending changes. They can only be used as clues for finding the final effective result. If no fix record information is available, or only process records are available, ask the user to confirm the final effective commit, source-control change record, config publication, data effectuation, or deployment/build version record. Proceed without one only after the user explicitly agrees; in that case, do not list process records as substitutes.
-
-When the user explicitly agrees to continue without an effective fix record, write `No effective fix record is available to cite` in `Fix Records` and state that the effective fix record could not be confirmed.
+If no effective record is available, ask for the final commit/change/config/data/build/deployment record. Continue without one only after explicit approval; then write `No effective fix record is available to cite`.
 
 ## Git
 
-- Prefer deriving the base URL from the Git remote. An SSH remote such as `git@gitlab.example.com:group/project.git` maps to `https://gitlab.example.com/group/project`.
-- For GitLab, use commit URL format `<base-url>/-/commit/<full-sha>`. For GitHub, use `<base-url>/commit/<full-sha>`. For other providers, use a user-supplied or provider-specific authoritative commit URL.
-- Use the short SHA as display text and the full SHA in the link.
-- List only commits that have landed in the target branch or deployed version and contain the fix diff.
-- Do not list commits that only represent merge activity, review flow, or temporary synchronization.
+- Display short SHA; link full SHA.
+- GitLab: `<base-url>/-/commit/<full-sha>`.
+- GitHub: `<base-url>/commit/<full-sha>`.
+- Derive HTTPS base URL from remote when possible, such as `git@gitlab.example.com:group/project.git` -> `https://gitlab.example.com/group/project`.
 
 ## Centralized Source Control
 
-- List only submitted source-control change records, written with their official change ID.
-- Include the branch, stream, depot path, or workspace label when it helps identify where the change landed.
-- Link each change ID to the authoritative change detail page instead of only providing local command output.
+- Use submitted official change IDs only.
+- Include branch, stream, depot path, or workspace label when needed.
+- Link the authoritative change detail page.
 
 ## Other Sources
 
-- Use clear source labels, such as `Config Change`, `Data Change`, `Deployment Version`, `Build Version`, or the project-specific system name.
-- Include the branch, environment, version, or dataset when it helps identify the change scope.
-- Link to pages that show the effective changed result, publication result, or build version result.
+- Use labels like `Config Change`, `Data Change`, `Deployment Version`, `Build Version`, or the project system name.
+- Include environment, version, branch, or dataset when needed.
+- Link the page showing the effective publication or version result.
