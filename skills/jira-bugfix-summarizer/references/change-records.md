@@ -1,18 +1,18 @@
 # Fix Records
 
-`修复记录` must list only effective changed results. For each record, state the source, branch or scope, display ID, URL, and functional change description; do not expand implementation diffs.
+`Fix Records` must list only effective changed results. For each record, state the source, branch or scope, display ID, URL, and functional change description; do not expand implementation diffs.
 
 ## General Format
 
 ```markdown
-- `<Source/system> <branch/environment>`：[`<display ID>`](<URL showing the effective changed result>) - `<functional change description in Chinese>`
+- `<Source/system> <branch/environment>`: [`<display ID>`](<URL showing the effective changed result>) - `<functional change description>`
 ```
 
 The source can be a landed Git commit containing the fix diff, a submitted source-control change record, a published config record, an effective data record, or a deployment/build version page that confirms where the fix took effect. Omit record types that do not exist.
 
-Do not list process records in `修复记录`, such as merge requests, reviews, temporary branches, draft changes, merge commits that only represent merge activity, pipeline runs, or unlanded pending changes. They can only be used as clues for finding the final effective result. If no fix record information is available, or only process records are available, ask the user to confirm the final effective commit, source-control change record, config publication, data effectuation, or deployment/build version record. Proceed without one only after the user explicitly agrees; in that case, do not list process records as substitutes.
+Do not list process records in `Fix Records`, such as merge requests, reviews, temporary branches, draft changes, merge commits that only represent merge activity, pipeline runs, or unlanded pending changes. They can only be used as clues for finding the final effective result. If no fix record information is available, or only process records are available, ask the user to confirm the final effective commit, source-control change record, config publication, data effectuation, or deployment/build version record. Proceed without one only after the user explicitly agrees; in that case, do not list process records as substitutes.
 
-When the user explicitly agrees to continue without an effective fix record, write `暂无可引用的有效修复记录` in `修复记录` and state that the effective fix record could not be confirmed.
+When the user explicitly agrees to continue without an effective fix record, write `No effective fix record is available to cite` in `Fix Records` and state that the effective fix record could not be confirmed.
 
 ## Git
 
