@@ -1,0 +1,3 @@
+interface:
+  display_name: "Skill Reviewer"
+  short_description: "Review agent skills for quality, safety, and portability"
