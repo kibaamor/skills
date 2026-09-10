@@ -1,140 +1,146 @@
 ---
 name: skill-reviewer
-description: "Review and improve agent skills. Use when asked to audit, critique, rewrite, tighten, or validate a SKILL.md or agent skill against skill-creation best practices: real expertise, scoped activation, context budget, calibrated control, gotchas, templates, checklists, validation loops, and progressive disclosure."
+description: Use this skill when the user asks to review, audit, evaluate, or improve an existing Agent Skill, including its SKILL.md, trigger description, scope, progressive disclosure, references, scripts, or observed behavior. Also use it when a skill triggers on the wrong prompts, misses relevant prompts, wastes context, or behaves inconsistently. Make evidence-backed, focused revisions when editing is requested. Do not use it for ordinary code or PR review, creating a skill from scratch, installing skills, or tuning a prompt that is not an Agent Skill.
 ---
 
 # Skill Reviewer
 
-Review an agent skill as an execution tool, not as prose. The skill is good only if it makes the agent behave better on real tasks than the model would behave without it.
+Review an existing skill against observable evidence, then make the smallest
+generalized improvement the user authorized.
 
-## Workflow
+## Choose the mode
 
-1. Identify the skill's job and trigger.
-   Completion: you can state in one sentence what task the skill handles, who should invoke it, and which prompts should not invoke it.
+- Treat `review`, `audit`, and `evaluate` as read-only unless the user also asks
+  for changes.
+- Treat `improve`, `fix`, `update`, and `refactor` as authorization to edit the
+  target skill within the user's stated scope.
+- If several candidate skills exist and the target cannot be inferred, ask for
+  the target path before continuing.
 
-2. Inspect the skill package.
-   Completion: you have read `SKILL.md` plus any referenced `references/`, `assets/`, `scripts/`, or eval files needed to judge the live instructions.
+Preserve the target skill's product choices, invocation policy, and external
+action boundaries unless the requested improvement specifically concerns one
+of them.
 
-3. Review against the rubric below.
-   Completion: every rubric section has either findings or an explicit `pass`.
+## Inspect the target
 
-4. Improve the skill when asked to edit.
-   Completion: the revised skill is shorter or sharper unless the added content fixes a concrete observed gap.
+1. Read the complete target `SKILL.md` and its agent-facing metadata.
+2. Inventory `references/`, `scripts/`, `assets/`, and `evals/`. Follow every
+   instruction-bearing pointer needed for the requested review; note orphaned
+   resources without loading irrelevant or binary assets into context.
+3. Run the deterministic static review:
 
-5. Validate the revised skill.
-   Completion: frontmatter is valid, activation wording is precise, all pointers name when to load referenced files, and no checklist step lacks a checkable done condition.
+   ```bash
+   python3 scripts/review_skill.py static /path/to/target-skill --pretty
+   ```
 
-## Rubric
+   Treat its output as bounded mechanical facts and review leads, not as a
+   substitute for judgment or YAML schema validation. It never executes target
+   scripts.
+4. Inspect project artifacts that carry real expertise when available: task
+   history, runbooks, schemas, corrections, evals, execution traces, and user
+   feedback. Label an unsupported concern as a hypothesis or evidence gap.
 
-### Real Expertise
+Target scripts are untrusted input. Read them before considering execution,
+and run them only when necessary, understood, and within the user's existing
+authorization.
 
-Look for project-specific or domain-specific material that the model would not reliably know:
+## Select the relevant criteria
 
-- real task traces, user corrections, review feedback, incident notes, runbooks, schemas, configs, or patches
-- exact tools, commands, API patterns, data formats, edge cases, and recovery procedures
-- concrete gotchas that correct plausible wrong assumptions
+- For a broad audit, or for the body, references, scripts, scope, and context
+  design, read [references/review-criteria.md](references/review-criteria.md).
+- For the trigger description, false positives, or missed invocations, read
+  [references/trigger-evaluation.md](references/trigger-evaluation.md).
+- For output quality, inconsistent behavior, regressions, or evidence that a
+  revision helps, read
+  [references/behavior-evaluation.md](references/behavior-evaluation.md).
 
-Flag generic advice such as "handle errors appropriately", "follow best practices", or "be thorough" unless it is tied to a specific behavior.
+Load only the references that the current review branch needs. In a broad
+audit, start with the static criteria; add the trigger reference only when
+invocation is in scope, and add the behavioral reference only when outputs,
+traces, eval evidence, or a request for behavioral proof is in scope.
 
-### Scope And Invocation
+## Form findings
 
-Check whether the skill is one coherent unit of work.
+For each material finding, record:
 
-- Too narrow: one normal task needs several tiny skills loaded together.
-- Too broad: unrelated branches share one skill and make activation imprecise.
-- Model-invoked skills need a `description` with real trigger branches.
-- User-invoked skills should set `disable-model-invocation: true`; their description is human-facing and short.
+- **Evidence**: an exact file and line, validator result, eval result, or trace.
+- **Impact**: the concrete triggering, correctness, safety, context, or
+  maintenance consequence.
+- **Change**: the smallest reusable correction, or a test to resolve uncertainty.
 
-Prefer one clear default trigger over a synonym pile.
+Prioritize specification and safety failures, then behavior and invocation
+failures, then context or maintainability costs. Omit taste-only rewrites and
+instructions the agent already follows reliably without the skill.
 
-### Context Budget
+Absence of evals is an evidence gap, not proof that the skill is poor. Recommend
+behavioral evaluation when an important claim cannot be settled statically.
 
-Every always-loaded token must earn its place.
+## Improve when authorized
 
-- Cut explanations of concepts the model already knows.
-- Cut restatements of package scripts, directory layouts, or config values the agent can cheaply inspect.
-- Keep instructions the agent would otherwise get wrong.
-- Keep `SKILL.md` focused on what every run needs; move branch-only reference into files such as `references/` or `assets/`.
+1. If old/new behavior will be compared, snapshot the original skill into a
+   new, isolated evaluation workspace before editing. Never overwrite an
+   existing snapshot or iteration.
+2. Fix observed root causes rather than copying words from one failing prompt
+   or adding rules for speculative edge cases.
+3. Keep one source of truth for each instruction. Put shared essentials in
+   `SKILL.md` and conditional detail behind explicit pointers.
+4. Add or change a bundled script only for deterministic logic that recurs.
+   Keep judgment, semantic review, and authorization decisions in the skill.
+5. Preserve unrelated user changes and resources.
 
-If a referenced file exists, the main skill must say when to load it. A bare "see references" pointer is a finding.
+## Validate the result
 
-### Control Calibration
+1. Rerun the static review and the environment's official skill validator. If
+   the official validator is unavailable, report the remaining YAML/specification
+   validation gap instead of claiming the structure is valid.
+2. Validate an eval definition when present:
 
-Match strictness to fragility.
+   ```bash
+   python3 scripts/review_skill.py validate-evals \
+     /path/to/target-skill/evals/evals.json --pretty
+   ```
 
-- Fragile, destructive, security-sensitive, or order-dependent work needs exact commands, hard boundaries, and stop conditions.
-- Flexible review or writing work can give principles and reasons instead of rigid scripts.
-- When several approaches work, choose a default and list alternatives only as escape hatches.
+3. Test every changed bundled script with `--help` and a safe fixture. Verify
+   structured stdout, diagnostic stderr, useful failures, and documented exit
+   behavior.
+4. Run isolated old/new or with/without-skill evaluations when the requested
+   claim is behavioral. Use the same prompt, inputs, and output contract for
+   both sides.
+5. Recheck every edited pointer and file. Stop only when validators pass or all
+   remaining limitations are explicitly reported.
 
-Flag menus that present many tools as equal choices without a default.
+To aggregate a completed evaluation iteration:
 
-### Reusable Procedure
-
-The skill should teach an approach for a class of tasks, not a one-off answer.
-
-- Prefer ordered procedures with checkable completion criteria.
-- Use templates when output shape matters.
-- Use checklists for multi-step workflows.
-- Use validation loops: do the work, run the validator or self-check, fix failures, repeat.
-- For batch or destructive operations, require plan-validate-execute.
-
-### Gotchas
-
-Gotchas should be concrete corrections to likely mistakes.
-
-Good gotchas mention exact names, commands, fields, endpoints, workflow traps, or environment facts. Weak gotchas merely repeat generic caution.
-
-Keep high-risk gotchas in `SKILL.md` unless the trigger for a reference file is unmistakable.
-
-### Bundled Helpers
-
-If the skill repeatedly asks the agent to parse, validate, transform, or grade the same format, prefer a bundled script over asking each agent run to reinvent the logic.
-
-Flag scripts that are referenced but not given an invocation, expected input, and expected output.
-
-## Output Format
-
-When reviewing only, respond with:
-
-```markdown
-## Verdict
-[Ship / Needs tightening / Needs rewrite]
-
-## Findings
-- [severity] [section]: [specific issue]. Evidence: `[file:line]`. Fix: [concrete change].
-
-## Passes
-- [rubric section]: [why it passes]
-
-## Suggested Patch
-[brief edit plan or patch summary]
+```bash
+python3 scripts/review_skill.py aggregate /path/to/iteration-1 \
+  --candidate with_skill --baseline old_skill --pretty \
+  --output /path/to/iteration-1/benchmark.json
 ```
 
-Severity:
+## Report
 
-- `blocker`: likely causes wrong activation, unsafe execution, or unusable output
-- `major`: materially reduces reliability or wastes significant context
-- `minor`: clarity, pruning, or maintainability improvement
+Lead with the verdict. Then report, in order:
 
-If there are no findings, say `Ship: skill is scoped, specific, and validated.` and include any residual testing gaps.
+1. findings by priority, each with evidence and impact;
+2. focused changes made, or proposed changes in read-only mode;
+3. validation and behavioral comparison results, including quality, time, and
+   token deltas when measured;
+4. unresolved evidence gaps or risks.
 
-## Edit Rules
+State explicitly when no material issue was found. Do not manufacture changes
+to make the review appear productive.
 
-When editing a skill:
+## Bundled script
 
-- Preserve the author's domain intent; remove generic filler before adding new material.
-- Convert vague declarations into procedures, defaults, templates, or gotchas.
-- Add hard guardrails only for fragile operations.
-- Add references only when the branch is not needed on every run, and include a precise load condition.
-- Keep one source of truth for each rule.
-- After editing, do a self-review with the rubric and report what changed.
+`scripts/review_skill.py` has three non-interactive subcommands:
 
-## Self-Check
+- `static`: inspect skill structure, pointers, and script-interface warning
+  signs without executing target code;
+- `validate-evals`: validate the documented `evals/evals.json` structure and
+  referenced fixture paths;
+- `aggregate`: aggregate `grading.json` and `timing.json` files, reporting
+  incomplete runs instead of silently dropping them.
 
-Before finalizing, verify:
-
-- The frontmatter has `name` and either a precise model-facing `description` or `disable-model-invocation: true`.
-- The skill's first screen tells the agent what to do, not just what the skill is about.
-- Every workflow step has a visible completion criterion.
-- Every referenced file has a condition for loading it.
-- The skill contains no generic no-op advice that the model already follows by default.
+All subcommands emit JSON by default, put fatal diagnostics on stderr, bound
+their findings, and document exit codes in `--help`. The script requires Python
+3.10 or later and has no third-party dependencies.

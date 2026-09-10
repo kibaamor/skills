@@ -1,0 +1,102 @@
+[
+  {
+    "query": "Please audit the existing Agent Skill at ~/.codex/skills/release-helper and fix any material problems you find.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Why does our deployment skill activate whenever I ask for an ordinary code review? Tighten it without losing real deployment requests.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "this workflow loads every reference even for tiny tasks and burns context, can u make the skill leaner?",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Review whether the scripts bundled in ./skills/customer-import are actually justified and safe for an agent shell.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "The incident-response skill sometimes follows the runbook and sometimes improvises. Use these three traces to find and fix the ambiguity.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Evaluate the old and revised versions of billing-reconcile as an Agent Skill and tell me whether the quality gain is worth the token cost.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Review this pull request for SQL injection and authorization bugs.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Create a brand-new Agent Skill for publishing our weekly release notes.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Install the spreadsheet skill from github.com/example/skills into my Codex setup.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Improve this system prompt so the assistant sounds less formal.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Debug scripts/publish.py; it throws KeyError when RELEASE_TAG is missing.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Audit the whole repository for performance issues and propose a refactoring roadmap.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Our skill never fires when teammates say 'prepare the board packet' instead of 'make slides'. Review the trigger description and its near-miss boundary.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "Can you inspect /work/skills/pdf-redactor/SKILL.md, references, and eval traces, then make focused improvements?",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "I think this Agent Skill is mostly generic advice. Check whether it adds value and leave it alone if the evidence doesn't support changes.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "pls check the evals for our csv-cleaner skill — the new version passes more but takes 3x as long",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "Rewrite the README for our skills repository so installation is easier to understand.",
+    "should_trigger": false,
+    "split": "validation"
+  },
+  {
+    "query": "Compare two general prompts on these 50 support questions and choose the better one.",
+    "should_trigger": false,
+    "split": "validation"
+  },
+  {
+    "query": "Evaluate whether this assistant response is accurate and well written.",
+    "should_trigger": false,
+    "split": "validation"
+  },
+  {
+    "query": "Validate config/pipeline.yaml and repair any schema errors.",
+    "should_trigger": false,
+    "split": "validation"
+  }
+]

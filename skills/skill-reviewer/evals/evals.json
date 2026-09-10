@@ -1,0 +1,48 @@
+{
+  "skill_name": "skill-reviewer",
+  "evals": [
+    {
+      "id": "read-only-overbroad",
+      "prompt": "Audit the Agent Skill in evals/files/overbroad-skill. I only want findings; do not edit it. Explain which issues are demonstrated and which need behavioral evidence.",
+      "expected_output": "A read-only, evidence-backed review that identifies the overbroad trigger and generic body, treats missing evals as an evidence gap, and does not change fixture files.",
+      "files": [
+        "evals/files/overbroad-skill/SKILL.md",
+        "evals/files/overbroad-skill/references/unused.md"
+      ],
+      "assertions": [
+        "No target fixture file is modified",
+        "Every material finding cites a target file or validator evidence",
+        "The report distinguishes observed defects from missing behavioral evidence"
+      ]
+    },
+    {
+      "id": "improve-agent-script",
+      "prompt": "Improve the existing Agent Skill in evals/files/interactive-script-skill and save the revised copy under the run output directory. Keep its domain purpose, but make the script interface safe for a non-interactive agent and validate the result.",
+      "expected_output": "A focused copy of the skill whose script uses explicit non-interactive inputs, has useful --help and structured output, plus validation evidence; the immutable source fixture remains unchanged.",
+      "files": [
+        "evals/files/interactive-script-skill/SKILL.md",
+        "evals/files/interactive-script-skill/scripts/publish.py"
+      ],
+      "assertions": [
+        "The source fixture remains unchanged and the improved skill is written only to the run output directory",
+        "The revised script does not prompt interactively and documents its arguments with --help",
+        "Machine-readable data is sent to stdout and diagnostics are separated",
+        "The revised skill passes structural validation and the script is tested on a safe fixture"
+      ]
+    },
+    {
+      "id": "healthy-no-churn",
+      "prompt": "Review evals/files/focused-skill for material problems. If it is already sound, say so instead of rewriting it for style.",
+      "expected_output": "A concise verdict grounded in the inspected files, with no manufactured finding and no unnecessary edit.",
+      "files": [
+        "evals/files/focused-skill/SKILL.md",
+        "evals/files/focused-skill/references/recovery.md"
+      ],
+      "assertions": [
+        "The review does not invent a defect merely to recommend a change",
+        "The report cites the evidence checked before concluding that no material issue was found",
+        "No fixture file is modified"
+      ]
+    }
+  ]
+}
