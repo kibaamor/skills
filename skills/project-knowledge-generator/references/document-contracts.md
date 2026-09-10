@@ -7,7 +7,7 @@ Use these contracts as selection and ownership rules, not templates. Omit sectio
 Create or retain a document only when its value test passes:
 
 - `AGENTS.md`: a repository-specific command, constraint, special-handling rule, completion check, or pointer changes agent behavior.
-- `CONTEXT.md`: project-specific terms or boundaries are not safely recoverable from conventional names.
+- `CONTEXT.md`: project-specific terms or boundaries are not safely recoverable from conventional names. Qualifying evidence includes ambiguous, deprecated, canonical, lifecycle, ownership, cardinality, or bounded-context language that source names alone would not explain. Do not create a glossary that only restates obvious module, function, class, route, or test names.
 - `CONTEXT-MAP.md`: at least two evidenced bounded contexts use distinct models or conflicting meanings. Directory, package, service, or team count alone is insufficient.
 - `ARCHITECTURE.md`: a non-obvious runtime flow, boundary, dependency constraint, external or persistence relationship, or durable rationale helps change planning.
 - `CODE-MAP.md`: at least two responsibility-bearing navigation targets exist, or agents must distinguish an edit source from tests, generated output, deployment, or another non-obvious target.

@@ -1,0 +1,79 @@
+{
+  "skill_name": "project-knowledge-generator",
+  "evals": [
+    {
+      "id": "create-basic-knowledge-set",
+      "prompt": "Create repository knowledge docs for the fixture repo in evals/files/create-basic. Keep the output compact and evidence-backed.",
+      "expected_output": "A minimal knowledge set that creates only documents whose value tests pass, uses source and manifest evidence for current-state claims, and reports unknowns instead of guessing.",
+      "files": [
+        "evals/files/create-basic/package.json",
+        "evals/files/create-basic/src/index.ts",
+        "evals/files/create-basic/src/orders.ts",
+        "evals/files/create-basic/test/orders.test.ts"
+      ],
+      "assertions": [
+        "Created documents satisfy the document-contract value tests instead of creating placeholders",
+        "CONTEXT.md is not created when candidate terms are safely recoverable from obvious source and test names",
+        "Runnable commands are traced to package.json scripts before publication",
+        "Domain and source-navigation facts cite behavior-bearing source or focused tests",
+        "The final report includes mode, changed files, decisive evidence, unknowns, and checks when applicable"
+      ]
+    },
+    {
+      "id": "refresh-stale-paths-preserve-guidance",
+      "prompt": "Refresh the existing knowledge docs in evals/files/refresh-stale after source paths changed. Preserve supported human-authored guidance and correct stale current-state claims.",
+      "expected_output": "A refresh that limits changes to affected stale facts, keeps supported local guidance, corrects stale paths and commands from current source evidence, and reports the baseline or lack of reliable baseline.",
+      "files": [
+        "evals/files/refresh-stale/AGENTS.md",
+        "evals/files/refresh-stale/CODE-MAP.md",
+        "evals/files/refresh-stale/package.json",
+        "evals/files/refresh-stale/src/handlers/checkout.ts",
+        "evals/files/refresh-stale/test/checkout.test.ts"
+      ],
+      "assertions": [
+        "Supported human-authored guidance remains intact",
+        "Stale paths are corrected or removed only after checking current repository evidence",
+        "The diff avoids unrelated wording, ordering, or formatting churn",
+        "The report identifies the refresh baseline used or states that no reliable baseline existed"
+      ]
+    },
+    {
+      "id": "code-map-only-isolation",
+      "prompt": "Perform a CODE-MAP-only refresh for evals/files/code-map-only so navigation points match the current source tree. Leave all other knowledge documents unchanged.",
+      "expected_output": "Only CODE-MAP.md changes; AGENTS.md and ARCHITECTURE.md remain byte-for-byte unchanged while stale navigation entries are updated from source evidence.",
+      "files": [
+        "evals/files/code-map-only/AGENTS.md",
+        "evals/files/code-map-only/ARCHITECTURE.md",
+        "evals/files/code-map-only/CODE-MAP.md",
+        "evals/files/code-map-only/package.json",
+        "evals/files/code-map-only/src/api/http.ts",
+        "evals/files/code-map-only/src/workers/sync.ts",
+        "evals/files/code-map-only/test/sync.test.ts"
+      ],
+      "assertions": [
+        "No knowledge document except CODE-MAP.md is modified",
+        "Every retained CODE-MAP.md link resolves with exact path case",
+        "Generated or special-handling areas identify both edit source and visible output when present",
+        "The report explicitly confirms CODE-MAP-only isolation was checked"
+      ]
+    },
+    {
+      "id": "contradicted-intent-labelled",
+      "prompt": "Refresh architecture knowledge for evals/files/conflicted-intent. Existing docs describe a target event stream, but current source implements synchronous HTTP calls.",
+      "expected_output": "Current behavior is documented from source evidence, contradicted target architecture remains only as labelled unresolved intent, and the conflict is reported as a stale or unresolved claim.",
+      "files": [
+        "evals/files/conflicted-intent/ARCHITECTURE.md",
+        "evals/files/conflicted-intent/package.json",
+        "evals/files/conflicted-intent/src/billing.ts",
+        "evals/files/conflicted-intent/src/http-client.ts",
+        "evals/files/conflicted-intent/test/billing.test.ts"
+      ],
+      "assertions": [
+        "Current-state architecture claims prefer behavior-bearing source over prose",
+        "Contradicted human-authored intent is preserved only when labelled as unresolved intent",
+        "The report names the implementation conflict and what evidence would resolve it",
+        "No equal-authority conflict is resolved by guessing"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "test": "vitest run test/billing.test.ts"
+  },
+  "devDependencies": {
+    "vitest": "2.0.0"
+  }
+}
