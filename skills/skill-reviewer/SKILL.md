@@ -1,6 +1,6 @@
 ---
 name: skill-reviewer
-description: Review and improve agent skills. Use when asked to audit, critique, rewrite, tighten, or validate a SKILL.md or agent skill against skill-creation best practices: real expertise, scoped activation, context budget, calibrated control, gotchas, templates, checklists, validation loops, and progressive disclosure.
+description: "Review and improve agent skills. Use when asked to audit, critique, rewrite, tighten, or validate a SKILL.md or agent skill against skill-creation best practices: real expertise, scoped activation, context budget, calibrated control, gotchas, templates, checklists, validation loops, and progressive disclosure."
 ---
 
 # Skill Reviewer

@@ -1,6 +1,6 @@
 ---
 name: jira-bugfix-summarizer
-description: Summarize an already fixed Jira bug for stakeholders; use for impact/root-cause/fix/validation summaries, not diagnosis, implementation, or Jira updates.
+description: "Summarize an already fixed Jira bug for stakeholders; use for impact/root-cause/fix/validation summaries, not diagnosis, implementation, or Jira updates."
 ---
 
 # Bugfix Summarizer
