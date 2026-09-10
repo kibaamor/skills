@@ -2,9 +2,11 @@
 
 Load this file before writing `Fix Records`.
 
-List only effective changed results: landed fix commits, submitted source-control changes, published config/data changes, or build/deployment/version records that prove where the fix took effect.
+List only effective changed results: landed fix commits, submitted source-control changes, published config or data changes, migrations that ran, or build/deployment/version records that prove where the fix took effect.
 
-Do not list process artifacts: merge requests, reviews, pipeline runs, draft branches, merge-only commits, temporary branches, or pending changes.
+Do not list process artifacts as fix records: merge requests, reviews, pipeline runs, draft branches, merge-only commits, temporary branches, or pending changes. You may cite those artifacts only when they contain the authoritative effective record and no better source is available.
+
+If a record proves merge but not deployment, say it landed or merged. If a record proves deployment but not client adoption, say it was deployed and keep client adoption separate.
 
 ## Format
 
@@ -29,6 +31,6 @@ If no effective record is available, ask for the final commit/change/config/data
 
 ## Other Sources
 
-- Use labels like `Config Change`, `Data Change`, `Deployment Version`, `Build Version`, or the project system name.
+- Use labels like `Config Change`, `Data Change`, `Migration`, `Deployment Version`, `Build Version`, or the project system name.
 - Include environment, version, branch, or dataset when needed.
 - Link the page showing the effective publication or version result.
