@@ -24,15 +24,15 @@ Run every applicable check after creating or refreshing project knowledge.
 
 ## Mechanical Checks
 
-Run:
+Use repository-configured documentation checks when they exist. If no configured checker covers these items, manually check every created or modified knowledge document and every context or package document it links, then report the checked scope:
 
-```bash
-node <skill-directory>/scripts/validate-knowledge.mjs <repository-root> <knowledge-file>...
-```
+- Every local file link resolves with exact path case from the document location.
+- Every same-file or cross-file heading anchor points to an existing heading.
+- Heading levels progress without skipping required hierarchy for the document's structure.
+- Every Mermaid block has a declared diagram type and no obvious unbalanced brackets, quotes, or code fences.
+- Every documented command names an existing script, binary, Make target, task, or repository file that controls it.
 
-Pass every created or modified knowledge document and every context or package document it links. The validator checks exact-case local links, heading structure and anchors, and basic Mermaid structure. Check document selection, context-map completeness, command definitions, and cross-document ownership manually; the validator does not enforce semantics.
-
-Run repository documentation checks when configured and available. Report missing executables or environment prerequisites. Use the repository's Mermaid checker when configured because the bundled validator is not a full parser.
+Report missing executables or environment prerequisites. Use the repository's Mermaid checker when configured because the manual Mermaid check is only a syntax screen, not a full parser.
 
 ## Final Reconciliation
 
