@@ -35,8 +35,19 @@ but require an adjacent capability. Obviously unrelated prompts do not test the
 description's precision.
 
 Keep a fixed, stratified split of roughly 60% training and 40% validation
-queries. Both sets need positives and negatives. Use only training failures to
-revise the description.
+queries. Treat a validation share from 30% through 50% as the suggested range;
+the validator emits only a warning outside it because split balance is a review
+heuristic, not proof of routing quality. Both sets need positives and negatives.
+Use only training failures to revise the description.
+
+Validate the query file before running routing experiments:
+
+```text
+python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py validate-triggers /path/to/target-skill/evals/trigger_queries.json --pretty
+```
+
+This validates labels, uniqueness, and split composition. It does not execute
+the queries or prove invocation behavior.
 
 ## Measure invocation
 

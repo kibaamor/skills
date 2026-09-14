@@ -27,13 +27,21 @@ Store definitions in the target skill's `evals/evals.json`:
 
 Validate it before running:
 
-```bash
-python3 scripts/review_skill.py validate-evals \
-  /path/to/example-skill/evals/evals.json --pretty
+```text
+python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py validate-evals /path/to/example-skill/evals/evals.json --pretty
 ```
 
 Observe the first outputs before adding detailed assertions. This keeps the
 initial test from encoding guesses about how a good solution must look.
+
+## Bind evidence to the reviewed package
+
+Record the resolved package root, declared name, reviewed file set, and source
+revision or snapshot identifier with each evaluation iteration. Retain a stable
+package digest when the harness provides one; do not claim or synthesize one
+when it does not. If package identity changes or cannot be established, report
+that limitation and do not present the run as regression evidence for another
+version.
 
 ## Use an isolated paired comparison
 
@@ -106,16 +114,15 @@ actionable feedback; an empty feedback string means no issue was found.
 
 After every run has both `grading.json` and `timing.json`, run:
 
-```bash
-python3 scripts/review_skill.py aggregate /path/to/iteration-N \
-  --candidate with_skill --baseline old_skill --pretty \
-  --output /path/to/iteration-N/benchmark.json
+```text
+python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py aggregate /path/to/iteration-N --candidate with_skill --baseline old_skill --pretty --output /path/to/iteration-N/benchmark.json
 ```
 
 The script gives each run equal weight and reports the number of runs, mean,
 and standard deviation for assertion pass rate, time, and tokens. Standard
 deviation is `null` for one run. It reports incomplete or malformed runs rather
-than silently excluding them.
+than silently excluding them. It also rejects symbolic links, junctions, and
+other reparse points below the iteration root instead of reading through them.
 
 Interpret quality and cost separately. Inspect:
 

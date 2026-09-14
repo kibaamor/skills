@@ -64,21 +64,40 @@ A bundled script is justified when deterministic logic would otherwise be
 rewritten across runs. A short pinned one-off tool can stay in `SKILL.md`; a
 complex command should become a tested script.
 
+Read the entry point and reachable package-local helpers. Trace how `SKILL.md`
+invokes the script and map its inputs, outputs, state changes, network or
+credential access, retry behavior, and failure paths before judging its safety
+or necessity.
+
+For static script-reference detection, a package-local command in a
+shell-language fenced block can count as a script invocation. That exception
+affects only script reference recognition. Fenced examples in `SKILL.md` or a
+reference file do not make other resources reachable; resource reachability
+still requires an instruction-bearing pointer outside the fence.
+
 For each command-line script, check:
 
 - its path is referenced from the skill root and its prerequisites are stated;
 - dependencies or one-off tool versions are pinned when reproducibility matters;
 - it is non-interactive and accepts input through arguments, environment, or
   stdin;
-- concise `--help` documents inputs, examples, and exit meanings;
+- concise runtime-appropriate help (`--help`, `-?`, or `/?`) documents inputs,
+  examples, and exit meanings;
 - invalid input says what failed, what was expected, and what to try;
 - stdout contains bounded structured data while diagnostics go to stderr;
 - retries are idempotent, ambiguous input is rejected, and stateful or
   destructive work has a dry run and risk-appropriate explicit gate;
-- large results default to a summary, pagination, or an explicit output file.
+- large results default to a summary, pagination, or an explicit output file;
+- supported platforms and runtimes match its shell assumptions, path handling,
+  executable-bit expectations, encodings, line endings, and external command
+  availability. A deliberately platform-specific script should document that
+  constraint; portability is not mandatory by itself.
 
-Static pattern matches are only leads. Read the implementation before claiming
-that a script prompts, mutates state, installs dependencies, or is destructive.
+Control false positives by distinguishing capability from reachable behavior.
+Imports, API names, strings, and static pattern matches are review leads, not
+proof that the documented workflow prompts, mutates state, installs packages,
+uses the network, or reads secrets. Ground such findings in an entry point,
+reachable branch, or data flow; otherwise label the concern as unverified.
 
 ## Safety and authorization
 

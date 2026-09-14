@@ -10,18 +10,21 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
+import stat
 import statistics
 import sys
 from collections import Counter, defaultdict, deque
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Iterable
 
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 TOP_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(?:\s*(.*))?$")
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 RESOURCE_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_.-])((?:scripts|references|assets|evals)/"
     r"[A-Za-z0-9_./-]+(?:\.[A-Za-z0-9_-]+)?)"
@@ -31,11 +34,77 @@ INTERACTIVE_PATTERNS = (
     (re.compile(r"\bgetpass(?:\.getpass)?\s*\("), "password prompt"),
     (re.compile(r"\bread\s+-[A-Za-z]*p\b"), "shell read -p prompt"),
     (re.compile(r"\bselect\s+\w+\s+in\b"), "shell select prompt"),
+    (re.compile(r"\bread-host\b", re.IGNORECASE), "PowerShell Read-Host prompt"),
+    (re.compile(r"\bset\s+/p\b", re.IGNORECASE), "cmd.exe set /p prompt"),
 )
-SCRIPT_SUFFIXES = {".py", ".sh", ".bash", ".js", ".mjs", ".ts", ".rb"}
+SCRIPT_SUFFIXES = {
+    ".bash",
+    ".bat",
+    ".cmd",
+    ".js",
+    ".mjs",
+    ".ps1",
+    ".py",
+    ".rb",
+    ".sh",
+    ".ts",
+}
+TRIGGER_FIELDS = {"query", "should_trigger", "split", "rationale"}
+WINDOWS_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "CONIN$",
+    "CONOUT$",
+    "PRN",
+    "AUX",
+    "NUL",
+    "CLOCK$",
+    *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+    "COM\u00b9",
+    "COM\u00b2",
+    "COM\u00b3",
+    "LPT\u00b9",
+    "LPT\u00b2",
+    "LPT\u00b3",
+}
+WINDOWS_INVALID_FILENAME_RE = re.compile(r'[<>:"|?*\x00-\x1f]')
+SHELL_FENCE_LANGUAGES = {
+    "bash",
+    "bat",
+    "batch",
+    "cmd",
+    "console",
+    "fish",
+    "powershell",
+    "ps1",
+    "pwsh",
+    "sh",
+    "shell",
+    "shell-session",
+    "terminal",
+    "zsh",
+}
+SESSION_FENCE_LANGUAGES = {"console", "shell-session", "terminal"}
+SHELL_PROMPT_RE = re.compile(
+    r"^\s*(?:PS(?:\s+[^>\r\n]*)?>|[A-Za-z]:[\\/][^>\r\n]*>|"
+    r"[^$>\r\n]+\$|[$>])[ \t]*",
+    re.IGNORECASE,
+)
+SHELL_SCRIPT_CALL_RE = re.compile(
+    r"^\s*@?(?:(?:call|source)\s+|[.&]\s+)?(?:sudo\s+)?(?:env\s+)?"
+    r"(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S+)\s+)*"
+    r"(?:(?:(?:python(?:3(?:\.\d+)?)?|py|bash|sh|zsh|fish|node|deno|"
+    r"ruby|pwsh|powershell|cmd)(?:\.exe)?|uv(?:\.exe)?\s+run)"
+    r"(?:\s+(?!['\"]?(?:\.[\\/])?scripts[\\/])\S+){0,16}\s+)?"
+    r"['\"]?(?:\.[\\/])?"
+    r"(?P<path>scripts[\\/][A-Za-z0-9_.\\/-]+)['\"]?"
+    r"(?=\s|$|[;&|])",
+    re.IGNORECASE,
+)
 EXIT_CODES = (
     "Exit codes: 0 completed without error findings; 1 completed with error "
-    "findings; 2 invalid arguments, paths, input, or output."
+    "findings; 2 fatal CLI, filesystem, JSON parse, or output failure."
 )
 
 
@@ -146,17 +215,21 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], int, list[str]]:
     return parsed, end + 1, errors
 
 
-def outside_fenced_code(text: str) -> str:
-    """Return text outside Markdown fences while preserving line numbers."""
+def split_markdown_fences(text: str) -> tuple[str, list[tuple[str, str]]]:
+    """Return non-fenced text and language-tagged fenced lines."""
     output: list[str] = []
+    fenced_lines: list[tuple[str, str]] = []
     fence_character: str | None = None
     fence_length = 0
+    fence_language = ""
     for line in text.splitlines():
-        match = re.match(r"^\s*(`{3,}|~{3,})", line)
+        match = re.match(r"^[ \t]{0,3}(`{3,}|~{3,})(.*)$", line)
         marker = match.group(1) if match else ""
         if fence_character is None and marker:
             fence_character = marker[0]
             fence_length = len(marker)
+            info = match.group(2).strip()
+            fence_language = info.split(maxsplit=1)[0].casefold() if info else ""
             output.append("")
             continue
         if (
@@ -164,37 +237,208 @@ def outside_fenced_code(text: str) -> str:
             and marker
             and marker[0] == fence_character
             and len(marker) >= fence_length
+            and not match.group(2).strip()
         ):
             fence_character = None
             fence_length = 0
+            fence_language = ""
             output.append("")
             continue
-        output.append(line if fence_character is None else "")
-    return "\n".join(output)
+        if fence_character is None:
+            output.append(line)
+        else:
+            output.append("")
+            fenced_lines.append((fence_language, line))
+    return "\n".join(output), fenced_lines
+
+
+def outside_fenced_code(text: str) -> str:
+    """Return text outside Markdown fences while preserving line numbers."""
+    return split_markdown_fences(text)[0]
+
+
+def markdown_link_target(raw_target: str) -> str:
+    """Extract a Markdown link destination without confusing titles or URIs."""
+    value = raw_target.strip()
+    if value.startswith("<"):
+        closing = value.find(">", 1)
+        target = value[1:closing] if closing != -1 else value[1:]
+    else:
+        target = value.split(maxsplit=1)[0]
+    return target.split("#", 1)[0]
+
+
+def shell_script_path(language: str, line: str) -> str | None:
+    """Return a package script invoked by one shell-fence command line."""
+    prompt_match = SHELL_PROMPT_RE.match(line)
+    if language in SESSION_FENCE_LANGUAGES and prompt_match is None:
+        return None
+    command = line[prompt_match.end() :] if prompt_match else line
+    stripped = command.lstrip()
+    if (
+        not stripped
+        or stripped.startswith(("#", "::"))
+        or re.match(r"(?i)^@?rem(?:\s|$)", stripped)
+    ):
+        return None
+    match = SHELL_SCRIPT_CALL_RE.match(command)
+    if match is None:
+        return None
+    return match.group("path").replace("\\", "/")
 
 
 def extract_paths(text: str) -> dict[str, bool]:
     """Map resource paths to whether a real Markdown pointer requires them."""
-    paths = {path: False for path in RESOURCE_PATH_RE.findall(text)}
-    for raw_target in MARKDOWN_LINK_RE.findall(outside_fenced_code(text)):
-        target = raw_target.strip().split(maxsplit=1)[0].strip("<>")
-        target = target.split("#", 1)[0]
-        if target and not re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", target):
+    instruction_text, fenced_lines = split_markdown_fences(text)
+    paths = {path: False for path in RESOURCE_PATH_RE.findall(instruction_text)}
+    for language, line in fenced_lines:
+        if language not in SHELL_FENCE_LANGUAGES:
+            continue
+        script_path = shell_script_path(language, line)
+        if script_path:
+            paths[script_path] = False
+    for raw_target in MARKDOWN_LINK_RE.findall(instruction_text):
+        target = markdown_link_target(raw_target)
+        windows_target = PureWindowsPath(target)
+        if target and (
+            windows_target.drive
+            or windows_target.root
+            or not URI_SCHEME_RE.match(target)
+        ):
             paths[target] = True
     return paths
 
 
-def iter_files(root: Path, directory: str) -> list[Path]:
-    base = root / directory
-    if not base.is_dir():
-        return []
-    return sorted(
-        path
-        for path in base.rglob("*")
-        if path.is_file()
-        and "__pycache__" not in path.parts
-        and path.suffix.lower() not in {".pyc", ".pyo"}
+def is_link_like(path: Path) -> bool:
+    """Return whether a path is a symlink or Windows reparse point."""
+    try:
+        info = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0) & WINDOWS_REPARSE_POINT
     )
+
+
+def first_link_like_component(root: Path, candidate: Path) -> Path | None:
+    """Find a redirecting component below root without dereferencing it."""
+    lexical_root = Path(os.path.abspath(os.fspath(root)))
+    lexical_candidate = Path(os.path.abspath(os.fspath(candidate)))
+    try:
+        relative = lexical_candidate.relative_to(lexical_root)
+    except ValueError:
+        return None
+    current = lexical_root
+    for part in relative.parts:
+        current /= part
+        if is_link_like(current):
+            return current
+    return None
+
+
+def resolve_within(root: Path, candidate: Path, *, strict: bool) -> Path:
+    """Resolve candidate and require it to remain below resolved root."""
+    resolved_root = root.resolve(strict=True)
+    resolved = candidate.resolve(strict=strict)
+    resolved.relative_to(resolved_root)
+    return resolved
+
+
+def windows_filename_issue(parts: tuple[str, ...]) -> str | None:
+    """Describe the first Windows-incompatible relative path component."""
+    for part in parts:
+        if part in {".", ".."}:
+            continue
+        if part.endswith((" ", ".")):
+            return f'component "{part}" ends with a space or period'
+        if WINDOWS_INVALID_FILENAME_RE.search(part):
+            return f'component "{part}" contains a Windows-invalid character'
+        device_name = part.split(".", 1)[0].rstrip(" .").upper()
+        if device_name in WINDOWS_RESERVED_NAMES:
+            return f'component "{part}" uses reserved Windows name "{device_name}"'
+    return None
+
+
+def iter_files(
+    root: Path,
+    directory: str,
+    errors: list[tuple[Path, str]] | None = None,
+) -> list[Path]:
+    base = root / directory
+    try:
+        info = os.lstat(base)
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        if errors is not None:
+            errors.append((base, str(exc)))
+        return []
+    if stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0) & WINDOWS_REPARSE_POINT
+    ):
+        return [base]
+    if not stat.S_ISDIR(info.st_mode):
+        return []
+
+    def record_walk_error(exc: OSError) -> None:
+        if errors is None:
+            return
+        problem_path = Path(exc.filename) if exc.filename else base
+        errors.append((problem_path, str(exc)))
+
+    discovered: list[Path] = []
+    for current_root, directory_names, file_names in os.walk(
+        base, topdown=True, onerror=record_walk_error, followlinks=False
+    ):
+        current = Path(current_root)
+        retained_directories: list[str] = []
+        for name in directory_names:
+            path = current / name
+            if "__pycache__" in path.parts:
+                continue
+            if is_link_like(path):
+                if path.suffix.lower() not in {".pyc", ".pyo"}:
+                    discovered.append(path)
+                continue
+            retained_directories.append(name)
+        directory_names[:] = retained_directories
+        for name in file_names:
+            path = current / name
+            if (
+                "__pycache__" not in path.parts
+                and path.suffix.lower() not in {".pyc", ".pyo"}
+            ):
+                discovered.append(path)
+    return sorted(discovered)
+
+
+def resolve_package_data_file(source: Path) -> tuple[Path, Path, str | None]:
+    """Resolve a package data file without trusting links below its skill root."""
+    path = Path(os.path.abspath(os.fspath(source)))
+    lexical_skill_root = (
+        path.parent.parent if path.parent.name.casefold() == "evals" else path.parent
+    )
+    redirect = first_link_like_component(lexical_skill_root, path)
+    if redirect == path:
+        try:
+            path.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise ValueError(f'Cannot resolve package data file "{source}": {exc}') from exc
+        return path, lexical_skill_root, "file_symlink"
+    if redirect is not None:
+        return path, lexical_skill_root, "parent_symlink"
+    if not path.is_file():
+        return path, lexical_skill_root, "missing"
+
+    try:
+        skill_root = lexical_skill_root.resolve(strict=True)
+        resolved_path = resolve_within(skill_root, path, strict=True)
+        relative_path = path.relative_to(lexical_skill_root)
+    except (OSError, RuntimeError, ValueError):
+        return path, lexical_skill_root, "outside"
+    if resolved_path != skill_root / relative_path:
+        return path, skill_root, "parent_symlink"
+    return path, skill_root, None
 
 
 def first_actionable_match(text: str, pattern: re.Pattern[str]) -> re.Match[str] | None:
@@ -206,6 +450,18 @@ def first_actionable_match(text: str, pattern: re.Pattern[str]) -> re.Match[str]
         if "re.compile" not in line:
             return match
     return None
+
+
+def script_help_detected(path: Path, text: str) -> bool:
+    """Recognize common help interfaces for supported script runtimes."""
+    folded = text.casefold()
+    if "--help" in folded or "argparse" in folded:
+        return True
+    if path.suffix.casefold() == ".ps1":
+        return any(marker in folded for marker in (".synopsis", "get-help", "-?"))
+    if path.suffix.casefold() in {".bat", ".cmd"}:
+        return "/?" in folded
+    return False
 
 
 def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]:
@@ -224,6 +480,16 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
         )
 
     skill_md = root / "SKILL.md"
+    if is_link_like(skill_md):
+        add_finding(
+            findings,
+            "error",
+            "package.skill_md_symlink",
+            skill_md,
+            "The root SKILL.md is a symbolic link or reparse point and was not inspected.",
+            "Replace it with an ordinary file inside the skill package.",
+        )
+        return finalize("static", root, facts, findings, max_findings), 1
     if not skill_md.is_file():
         add_finding(
             findings,
@@ -372,15 +638,38 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
         )
 
     all_resource_files: dict[str, list[Path]] = {}
+    inventory_errors: list[tuple[Path, str]] = []
     for directory in ("references", "scripts", "assets", "evals"):
-        files = iter_files(root, directory)
+        files = iter_files(root, directory, inventory_errors)
         all_resource_files[directory] = files
         facts["resource_files"][directory] = len(files)
+
+    for problem_path, message in inventory_errors:
+        add_finding(
+            findings,
+            "error",
+            "package.resource_unreadable",
+            problem_path,
+            f"A package resource directory could not be inventoried: {message}.",
+            "Restore read access and rerun the package-boundary preflight.",
+        )
+
+    for files in all_resource_files.values():
+        for path in files:
+            if is_link_like(path):
+                add_finding(
+                    findings,
+                    "warning",
+                    "package.resource_symlink",
+                    path,
+                    "A package resource is a symbolic link or reparse point and was not inspected.",
+                    "Replace it with an ordinary package-local file before relying on it.",
+                )
 
     instruction_files = [skill_md] + [
         path
         for path in all_resource_files["references"]
-        if path.suffix.lower() in {".md", ".txt"}
+        if not is_link_like(path) and path.suffix.lower() in {".md", ".txt"}
     ]
     file_texts: dict[Path, str] = {skill_md: text}
     for path in instruction_files[1:]:
@@ -410,13 +699,41 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             raw_path = raw.split("#", 1)[0]
             if not raw_path:
                 continue
+            windows_pointer = PureWindowsPath(raw_path)
+            if (
+                windows_pointer.drive
+                or windows_pointer.root
+                or PurePosixPath(raw_path).is_absolute()
+            ):
+                add_finding(
+                    findings,
+                    "error",
+                    "pointer.target_outside",
+                    source,
+                    f'Referenced path "{raw_path}" is drive-qualified, rooted, or absolute.',
+                    "Use a package-relative pointer with forward-slash separators.",
+                    line_number(source_text, raw_path),
+                )
+                continue
             if raw_path.startswith(("scripts/", "references/", "assets/", "evals/")):
-                resolved = (root / raw_path).resolve()
+                candidate = root / raw_path
             else:
-                resolved = (source.parent / raw_path).resolve()
+                candidate = source.parent / raw_path
+            redirect = first_link_like_component(root, candidate)
             try:
-                resolved.relative_to(root)
-            except ValueError:
+                resolved = resolve_within(root, candidate, strict=False)
+            except (OSError, RuntimeError, ValueError):
+                add_finding(
+                    findings,
+                    "error",
+                    "pointer.target_outside",
+                    source,
+                    f'Referenced path "{raw_path}" resolves outside the skill package.',
+                    "Keep review resources inside the target skill root.",
+                    line_number(source_text, raw_path),
+                )
+                continue
+            if redirect is not None:
                 continue
             mentioned.add(resolved)
             if not resolved.exists() and required_pointer:
@@ -434,6 +751,8 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                 queue.append(resolved)
 
     for path in all_resource_files["references"]:
+        if is_link_like(path):
+            continue
         if path not in reachable_references and path not in mentioned:
             add_finding(
                 findings,
@@ -446,6 +765,8 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
 
     for path in all_resource_files["scripts"]:
         relative = path.relative_to(root)
+        if is_link_like(path):
+            continue
         if path.resolve() not in mentioned:
             add_finding(
                 findings,
@@ -459,9 +780,17 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             continue
         try:
             script_text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
+        except (OSError, UnicodeError) as exc:
+            add_finding(
+                findings,
+                "warning",
+                "script.unreadable",
+                path,
+                f"The script could not be read as UTF-8: {exc}.",
+                "Restore read access or use a documented text encoding before review.",
+            )
             continue
-        if "--help" not in script_text and "argparse" not in script_text:
+        if not script_help_detected(path, script_text):
             add_finding(
                 findings,
                 "warning",
@@ -484,10 +813,41 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                 )
 
     openai_yaml = root / "agents" / "openai.yaml"
-    if openai_yaml.is_file() and name:
+    metadata_redirect = first_link_like_component(root, openai_yaml)
+    if metadata_redirect is not None:
+        add_finding(
+            findings,
+            "warning",
+            "package.metadata_symlink",
+            openai_yaml,
+            "Agent metadata or one of its parent directories is a symbolic link or reparse point and was not inspected.",
+            "Replace it with an ordinary package-local file.",
+        )
+        try:
+            metadata_redirect.resolve(strict=True).relative_to(root)
+        except ValueError:
+            add_finding(
+                findings,
+                "error",
+                "package.metadata_outside",
+                openai_yaml,
+                "Agent metadata redirects outside the skill package and was not inspected.",
+                "Keep agents/openai.yaml and all of its parent directories inside the package.",
+            )
+        except (OSError, RuntimeError):
+            pass
+    elif openai_yaml.is_file() and name:
         try:
             openai_text = openai_yaml.read_text(encoding="utf-8")
-        except (OSError, UnicodeError):
+        except (OSError, UnicodeError) as exc:
+            add_finding(
+                findings,
+                "warning",
+                "metadata.unreadable",
+                openai_yaml,
+                f"Agent metadata could not be read as UTF-8: {exc}.",
+                "Restore read access or use UTF-8 metadata before review.",
+            )
             openai_text = ""
         default_prompt_match = re.search(
             r"^\s*default_prompt:\s*['\"]?(.*?)['\"]?\s*$",
@@ -510,7 +870,7 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
 
 
 def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any], int]:
-    path = evals_path.resolve()
+    path, skill_root, path_issue = resolve_package_data_file(evals_path)
     findings: list[Finding] = []
     facts: dict[str, Any] = {
         "skill_name": None,
@@ -518,8 +878,29 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
         "eval_count": 0,
         "assertion_count": 0,
     }
-    if not path.is_file():
+    if path_issue in {"file_symlink", "parent_symlink"}:
+        add_finding(
+            findings,
+            "error",
+            "evals.definition_symlink",
+            path,
+            "The eval definition or one of its package directories is a symbolic link or reparse point and was not inspected.",
+            "Use an ordinary evals.json file inside the target skill package.",
+        )
+        return finalize("validate-evals", path, facts, findings, max_findings), 1
+    if path_issue == "missing":
         raise ValueError(f'Evals file must exist; received "{evals_path}".')
+    if path_issue == "outside":
+        add_finding(
+            findings,
+            "error",
+            "evals.definition_outside_skill",
+            path,
+            "The eval definition resolves outside the inferred target skill root.",
+            "Keep evals.json and its parent directories inside the target skill package.",
+        )
+        return finalize("validate-evals", path, facts, findings, max_findings), 1
+
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -536,10 +917,27 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
         )
         return finalize("validate-evals", path, facts, findings, max_findings), 1
 
-    skill_root = path.parent.parent if path.parent.name == "evals" else path.parent
     target_skill_md = skill_root / "SKILL.md"
     target_skill_name = ""
-    if target_skill_md.is_file():
+    if is_link_like(target_skill_md):
+        add_finding(
+            findings,
+            "error",
+            "evals.target_skill_symlink",
+            target_skill_md,
+            "The target SKILL.md is a symbolic link or reparse point and was not inspected.",
+            "Use an ordinary SKILL.md inside the target skill root.",
+        )
+    elif not target_skill_md.is_file():
+        add_finding(
+            findings,
+            "error",
+            "evals.target_skill_missing",
+            target_skill_md,
+            "Cannot verify skill_name because the inferred skill root has no SKILL.md.",
+            "Place evals/evals.json below the target skill root or provide its SKILL.md.",
+        )
+    else:
         try:
             target_text = target_skill_md.read_text(encoding="utf-8")
             target_frontmatter, _, target_parse_errors = parse_frontmatter(target_text)
@@ -672,7 +1070,78 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
         else:
             for file_value in files:
                 fixture = Path(file_value)
-                resolved = fixture if fixture.is_absolute() else skill_root / fixture
+                posix_fixture = PurePosixPath(file_value)
+                windows_fixture = PureWindowsPath(file_value)
+                if (
+                    fixture.is_absolute()
+                    or posix_fixture.is_absolute()
+                    or windows_fixture.is_absolute()
+                    or bool(windows_fixture.root)
+                ):
+                    add_finding(
+                        findings,
+                        "error",
+                        "evals.file_absolute",
+                        path,
+                        f'{label} uses absolute fixture path "{file_value}".',
+                        "Use a fixture path relative to the target skill root.",
+                    )
+                    continue
+                if windows_fixture.drive:
+                    add_finding(
+                        findings,
+                        "error",
+                        "evals.file_nonportable",
+                        path,
+                        f'{label} fixture path "{file_value}" uses a Windows drive prefix.',
+                        "Use a portable POSIX-style path relative to the target skill root.",
+                    )
+                    continue
+                if "\\" in file_value:
+                    add_finding(
+                        findings,
+                        "error",
+                        "evals.file_nonportable",
+                        path,
+                        f'{label} fixture path "{file_value}" uses backslash separators.',
+                        "Use a portable POSIX-style path relative to the target skill root.",
+                    )
+                    continue
+                if ".." in posix_fixture.parts or ".." in windows_fixture.parts:
+                    add_finding(
+                        findings,
+                        "error",
+                        "evals.file_parent_traversal",
+                        path,
+                        f'{label} fixture path "{file_value}" contains a parent traversal.',
+                        "Keep immutable fixtures inside the target skill root.",
+                    )
+                    continue
+                filename_issue = windows_filename_issue(posix_fixture.parts)
+                if filename_issue:
+                    add_finding(
+                        findings,
+                        "error",
+                        "evals.file_nonportable",
+                        path,
+                        f'{label} fixture path "{file_value}" is not portable: {filename_issue}.',
+                        "Rename the fixture using characters and components valid on Windows.",
+                    )
+                    continue
+                try:
+                    resolved = resolve_within(
+                        skill_root, skill_root / fixture, strict=False
+                    )
+                except (OSError, RuntimeError, ValueError):
+                    add_finding(
+                        findings,
+                        "error",
+                        "evals.file_outside_skill",
+                        path,
+                        f'{label} fixture path "{file_value}" resolves outside the target skill root.',
+                        "Use a relative fixture that remains inside the target skill root after resolution.",
+                    )
+                    continue
                 if not resolved.is_file():
                     add_finding(
                         findings,
@@ -697,16 +1166,211 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
                     "Use observable assertions or omit them until first outputs are reviewed.",
                 )
             else:
-                facts["assertion_count"] += len(assertions)
+                normalized_assertions = [item.strip() for item in assertions]
+                facts["assertion_count"] += len(normalized_assertions)
+                if len(set(normalized_assertions)) != len(normalized_assertions):
+                    add_finding(
+                        findings,
+                        "error",
+                        "evals.assertion_duplicate",
+                        path,
+                        f"{label}.assertions contains duplicate text after trimming.",
+                        "Keep every assertion within an eval case unique.",
+                    )
 
     result = finalize("validate-evals", path, facts, findings, max_findings)
+    return result, 1 if result["summary"]["errors"] else 0
+
+
+def validate_triggers(
+    triggers_path: Path, max_findings: int
+) -> tuple[dict[str, Any], int]:
+    path, _, path_issue = resolve_package_data_file(triggers_path)
+    findings: list[Finding] = []
+    coverage = {
+        "train": {"positive": 0, "negative": 0},
+        "validation": {"positive": 0, "negative": 0},
+    }
+    facts: dict[str, Any] = {
+        "query_count": 0,
+        "unique_query_count": 0,
+        "coverage": coverage,
+        "split_fractions": {"train": 0.0, "validation": 0.0},
+    }
+    if path_issue in {"file_symlink", "parent_symlink"}:
+        add_finding(
+            findings,
+            "error",
+            "triggers.definition_symlink",
+            path,
+            "The trigger definition or one of its package directories is a symbolic link or reparse point and was not inspected.",
+            "Use an ordinary trigger_queries.json file inside the target skill package.",
+        )
+        return finalize("validate-triggers", path, facts, findings, max_findings), 1
+    if path_issue == "missing":
+        raise ValueError(f'Trigger query file must exist; received "{triggers_path}".')
+    if path_issue == "outside":
+        add_finding(
+            findings,
+            "error",
+            "triggers.definition_outside_skill",
+            path,
+            "The trigger definition resolves outside the inferred target skill root.",
+            "Keep trigger_queries.json and its parent directories inside the target skill package.",
+        )
+        return finalize("validate-triggers", path, facts, findings, max_findings), 1
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Cannot parse {path} as JSON: {exc}") from exc
+
+    if not isinstance(data, list):
+        add_finding(
+            findings,
+            "error",
+            "triggers.root_type",
+            path,
+            "The trigger query definition must be a JSON array.",
+            "Use an array of query, should_trigger, and split objects.",
+        )
+        return finalize("validate-triggers", path, facts, findings, max_findings), 1
+
+    facts["query_count"] = len(data)
+    seen_queries: set[str] = set()
+    for index, case in enumerate(data):
+        label = f"queries[{index}]"
+        if not isinstance(case, dict):
+            add_finding(
+                findings,
+                "error",
+                "triggers.case_type",
+                path,
+                f"{label} must be an object.",
+                "Use query, should_trigger, and split fields for every case.",
+            )
+            continue
+
+        unknown_fields = sorted(set(case) - TRIGGER_FIELDS)
+        if unknown_fields:
+            add_finding(
+                findings,
+                "warning",
+                "triggers.unknown_fields",
+                path,
+                f"{label} has unknown field(s): {', '.join(unknown_fields)}.",
+                "Remove misspelled fields or document them in the trigger query contract.",
+            )
+
+        query = case.get("query")
+        normalized_query = query.strip() if isinstance(query, str) else ""
+        if not normalized_query:
+            add_finding(
+                findings,
+                "error",
+                "triggers.query",
+                path,
+                f"{label}.query must be a non-empty string.",
+                "Add a realistic user query.",
+            )
+        elif normalized_query in seen_queries:
+            add_finding(
+                findings,
+                "error",
+                "triggers.query_duplicate",
+                path,
+                f"{label}.query duplicates an earlier query.",
+                "Keep every trigger query unique after trimming whitespace.",
+            )
+        else:
+            seen_queries.add(normalized_query)
+
+        should_trigger = case.get("should_trigger")
+        if not isinstance(should_trigger, bool):
+            add_finding(
+                findings,
+                "error",
+                "triggers.should_trigger",
+                path,
+                f"{label}.should_trigger must be a boolean.",
+                "Use true for positive queries and false for near misses.",
+            )
+
+        split = case.get("split")
+        valid_split = isinstance(split, str) and split in coverage
+        if not valid_split:
+            add_finding(
+                findings,
+                "error",
+                "triggers.split",
+                path,
+                f'{label}.split must be "train" or "validation".',
+                "Assign every query to one fixed split.",
+            )
+
+        if isinstance(should_trigger, bool) and valid_split:
+            class_name = "positive" if should_trigger else "negative"
+            coverage[split][class_name] += 1
+
+        rationale = case.get("rationale")
+        if rationale is not None and (
+            not isinstance(rationale, str) or not rationale.strip()
+        ):
+            add_finding(
+                findings,
+                "error",
+                "triggers.rationale",
+                path,
+                f"{label}.rationale must be a non-empty string when provided.",
+                "Explain briefly why the query should or should not trigger.",
+            )
+
+    facts["unique_query_count"] = len(seen_queries)
+    split_totals = {
+        split: sum(class_counts.values()) for split, class_counts in coverage.items()
+    }
+    classified_query_count = sum(split_totals.values())
+    if classified_query_count:
+        facts["split_fractions"] = {
+            split: count / classified_query_count
+            for split, count in split_totals.items()
+        }
+        validation_fraction = facts["split_fractions"]["validation"]
+        if not 0.3 <= validation_fraction <= 0.5:
+            add_finding(
+                findings,
+                "warning",
+                "triggers.split_imbalance",
+                path,
+                (
+                    "Validation contains "
+                    f"{validation_fraction:.1%} of classified trigger queries; "
+                    "the recommended range is 30%-50%."
+                ),
+                "Move fixed queries between splits while preserving both labels in each split.",
+            )
+    for split, class_counts in coverage.items():
+        for class_name, count in class_counts.items():
+            if count == 0:
+                add_finding(
+                    findings,
+                    "error",
+                    "triggers.coverage",
+                    path,
+                    f'The "{split}" split has no {class_name} trigger queries.',
+                    "Include both positive and negative queries in each split.",
+                )
+
+    result = finalize("validate-triggers", path, facts, findings, max_findings)
     return result, 1 if result["summary"]["errors"] else 0
 
 
 def numeric(value: Any, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{label} must be numeric")
-    converted = float(value)
+    try:
+        converted = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{label} must be finite and non-negative") from exc
     if not math.isfinite(converted) or converted < 0:
         raise ValueError(f"{label} must be finite and non-negative")
     return converted
@@ -715,17 +1379,33 @@ def numeric(value: Any, label: str) -> float:
 def metric(values: list[float]) -> dict[str, Any]:
     return {
         "n": len(values),
-        "mean": statistics.fmean(values),
+        # statistics.mean avoids fmean's intermediate float overflow for
+        # individually finite values near the platform maximum.
+        "mean": statistics.mean(values),
         "stddev": statistics.stdev(values) if len(values) > 1 else None,
     }
 
 
-def parse_run(config_dir: Path) -> dict[str, float]:
+def parse_run(root: Path, config_dir: Path) -> dict[str, Any]:
     grading_path = config_dir / "grading.json"
     timing_path = config_dir / "timing.json"
+    redirected = [
+        path.name
+        for path in (grading_path, timing_path)
+        if first_link_like_component(root, path) is not None
+    ]
+    if redirected:
+        raise ValueError(
+            f"{', '.join(redirected)} must not be symbolic links or reparse points"
+        )
     missing = [path.name for path in (grading_path, timing_path) if not path.is_file()]
     if missing:
         raise ValueError(f"missing {', '.join(missing)}")
+    try:
+        for path in (grading_path, timing_path):
+            resolve_within(root, path, strict=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError("run data must resolve inside the iteration root") from exc
     try:
         grading = json.loads(grading_path.read_text(encoding="utf-8"))
         timing = json.loads(timing_path.read_text(encoding="utf-8"))
@@ -740,12 +1420,17 @@ def parse_run(config_dir: Path) -> dict[str, float]:
     if not isinstance(assertion_results, list) or not assertion_results:
         raise ValueError("grading.json must contain a non-empty assertion_results array")
     passed = 0
+    assertion_texts: set[str] = set()
     for index, assertion in enumerate(assertion_results):
         label = f"assertion_results[{index}]"
         if not isinstance(assertion, dict):
             raise ValueError(f"{label} must be an object")
         if not isinstance(assertion.get("text"), str) or not assertion["text"].strip():
             raise ValueError(f"{label}.text must be a non-empty string")
+        normalized_text = assertion["text"].strip()
+        if normalized_text in assertion_texts:
+            raise ValueError(f"{label}.text duplicates an earlier assertion")
+        assertion_texts.add(normalized_text)
         if not isinstance(assertion.get("passed"), bool):
             raise ValueError(f"{label}.passed must be a boolean")
         if not isinstance(assertion.get("evidence"), str) or not assertion[
@@ -771,6 +1456,7 @@ def parse_run(config_dir: Path) -> dict[str, float]:
         "pass_rate": expected_pass_rate,
         "time_seconds": numeric(timing.get("duration_ms"), "duration_ms") / 1000,
         "tokens": numeric(timing.get("total_tokens"), "total_tokens"),
+        "assertion_texts": assertion_texts,
     }
 
 
@@ -793,13 +1479,67 @@ def aggregate(
         lambda: {"pass_rate": [], "time_seconds": [], "tokens": []}
     )
     runs: list[dict[str, Any]] = []
-    eval_dirs = sorted(path for path in root.glob("eval-*") if path.is_dir())
+    eval_dirs = sorted(
+        path
+        for path in root.glob("eval-*")
+        if is_link_like(path) or path.is_dir()
+    )
     if not eval_dirs:
         raise ValueError(f"No eval-* directories were found under {root}.")
 
     for eval_dir in eval_dirs:
-        config_dirs = sorted(path for path in eval_dir.iterdir() if path.is_dir())
+        if is_link_like(eval_dir):
+            add_finding(
+                findings,
+                "error",
+                "aggregate.path_symlink",
+                eval_dir,
+                "An eval directory is a symbolic link or reparse point and was not inspected.",
+                "Use ordinary run directories inside the iteration root.",
+            )
+            continue
+        try:
+            resolve_within(root, eval_dir, strict=True)
+        except (OSError, RuntimeError, ValueError):
+            add_finding(
+                findings,
+                "error",
+                "aggregate.path_outside",
+                eval_dir,
+                "An eval directory resolves outside the iteration root and was not inspected.",
+                "Keep every eval directory inside the iteration root.",
+            )
+            continue
+
+        config_dirs: list[Path] = []
+        for config_dir in sorted(eval_dir.iterdir()):
+            if is_link_like(config_dir):
+                add_finding(
+                    findings,
+                    "error",
+                    "aggregate.path_symlink",
+                    config_dir,
+                    "A configuration path is a symbolic link or reparse point and was not inspected.",
+                    "Use ordinary configuration directories inside the iteration root.",
+                )
+                continue
+            if not config_dir.is_dir():
+                continue
+            try:
+                resolve_within(root, config_dir, strict=True)
+            except (OSError, RuntimeError, ValueError):
+                add_finding(
+                    findings,
+                    "error",
+                    "aggregate.path_outside",
+                    config_dir,
+                    "A configuration directory resolves outside the iteration root and was not inspected.",
+                    "Keep every configuration directory inside the iteration root.",
+                )
+                continue
+            config_dirs.append(config_dir)
         present = {path.name for path in config_dirs}
+        parsed_configs: dict[str, dict[str, Any]] = {}
         for required in (candidate, baseline):
             if required not in present:
                 add_finding(
@@ -812,7 +1552,7 @@ def aggregate(
                 )
         for config_dir in config_dirs:
             try:
-                parsed = parse_run(config_dir)
+                parsed = parse_run(root, config_dir)
             except ValueError as exc:
                 add_finding(
                     findings,
@@ -830,16 +1570,36 @@ def aggregate(
                     }
                 )
                 continue
-            for key, value in parsed.items():
+            parsed_configs[config_dir.name] = parsed
+            metrics = {
+                key: parsed[key] for key in ("pass_rate", "time_seconds", "tokens")
+            }
+            for key, value in metrics.items():
                 values[config_dir.name][key].append(value)
             runs.append(
                 {
                     "eval": eval_dir.name,
                     "configuration": config_dir.name,
                     "complete": True,
-                    **parsed,
+                    **metrics,
                 }
             )
+
+        if candidate in parsed_configs and baseline in parsed_configs:
+            candidate_assertions = parsed_configs[candidate]["assertion_texts"]
+            baseline_assertions = parsed_configs[baseline]["assertion_texts"]
+            if candidate_assertions != baseline_assertions:
+                add_finding(
+                    findings,
+                    "error",
+                    "aggregate.assertion_set_mismatch",
+                    eval_dir,
+                    (
+                        f'Configurations "{candidate}" and "{baseline}" use different '
+                        "assertion text sets."
+                    ),
+                    "Grade both sides of a paired eval with the same assertions.",
+                )
 
     run_summary: dict[str, Any] = {}
     for configuration in sorted(values):
@@ -992,7 +1752,10 @@ def add_output_options(
         parser.add_argument(
             "--output",
             metavar="FILE",
-            help="Also write the complete rendered result to FILE; use - for stdout only.",
+            help=(
+                "Also write the rendered result to FILE; findings remain subject to "
+                "--max-findings. Use - for stdout only."
+            ),
         )
 
 
@@ -1016,6 +1779,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     evals_parser.add_argument("evals_json", help="Path to evals/evals.json.")
     add_output_options(evals_parser)
+
+    triggers_parser = subparsers.add_parser(
+        "validate-triggers",
+        help="Validate a trigger query JSON definition and its coverage.",
+        epilog=EXIT_CODES,
+    )
+    triggers_parser.add_argument(
+        "trigger_queries_json", help="Path to evals/trigger_queries.json."
+    )
+    add_output_options(triggers_parser)
 
     aggregate_parser = subparsers.add_parser(
         "aggregate",
@@ -1047,6 +1820,10 @@ def main() -> int:
             result, status = static_review(Path(args.target), args.max_findings)
         elif args.command == "validate-evals":
             result, status = validate_evals(Path(args.evals_json), args.max_findings)
+        elif args.command == "validate-triggers":
+            result, status = validate_triggers(
+                Path(args.trigger_queries_json), args.max_findings
+            )
         else:
             result, status = aggregate(
                 Path(args.iteration),
@@ -1056,7 +1833,7 @@ def main() -> int:
             )
         write_result(result, args)
         return status
-    except (OSError, UnicodeError, ValueError) as exc:
+    except (OSError, RuntimeError, UnicodeError, ValueError) as exc:
         sys.stderr.write(f"Error: {exc}\n")
         sys.stderr.write(f"Try: {Path(sys.argv[0]).name} {args.command} --help\n")
         return 2
