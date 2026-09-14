@@ -23,8 +23,11 @@ from typing import Any, Iterable
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 TOP_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(?:\s*(.*))?$")
-MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+MARKDOWN_LINK_START_RE = re.compile(r"(?<!!)\[[^\]\r\n]+\]\(")
 URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+COMMONMARK_BACKSLASH_ESCAPE_RE = re.compile(
+    r"""\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])"""
+)
 RESOURCE_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9_.-])((?:scripts|references|assets|evals)/"
     r"[A-Za-z0-9_./-]+(?:\.[A-Za-z0-9_-]+)?)"
@@ -86,9 +89,10 @@ SHELL_FENCE_LANGUAGES = {
     "zsh",
 }
 SESSION_FENCE_LANGUAGES = {"console", "shell-session", "terminal"}
+POWERSHELL_FENCE_LANGUAGES = {"powershell", "ps1", "pwsh"}
 SHELL_PROMPT_RE = re.compile(
-    r"^\s*(?:PS(?:\s+[^>\r\n]*)?>|[A-Za-z]:[\\/][^>\r\n]*>|"
-    r"[^$>\r\n]+\$|[$>])[ \t]*",
+    r"^\s*(?:PS(?:\s+[^>\r\n]*)?>|\\\\[^>\r\n]+>|[A-Za-z]:[\\/][^>\r\n]*>|"
+    r"[^$>\r\n]+\$(?=[ \t])|[$>](?=[ \t]))[ \t]*",
     re.IGNORECASE,
 )
 SHELL_SCRIPT_CALL_RE = re.compile(
@@ -96,9 +100,16 @@ SHELL_SCRIPT_CALL_RE = re.compile(
     r"(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S+)\s+)*"
     r"(?:(?:(?:python(?:3(?:\.\d+)?)?|py|bash|sh|zsh|fish|node|deno|"
     r"ruby|pwsh|powershell|cmd)(?:\.exe)?|uv(?:\.exe)?\s+run)"
-    r"(?:\s+(?!['\"]?(?:\.[\\/])?scripts[\\/])\S+){0,16}\s+)?"
-    r"['\"]?(?:\.[\\/])?"
-    r"(?P<path>scripts[\\/][A-Za-z0-9_.\\/-]+)['\"]?"
+    r"(?:\s+(?!['\"]?(?:\$(?:PSScriptRoot|\{PSScriptRoot\})[\\/]"
+    r"|%~dp0[\\/]?)?"
+    r"(?:\.[\\/])?scripts[\\/])\S+){0,16}\s+)?"
+    r"(?:"
+    r'"(?:\$(?:PSScriptRoot|\{PSScriptRoot\})[\\/]|%~dp0[\\/]?)?'
+    r"(?:\.[\\/])?(?P<double_path>scripts[\\/][^\"\r\n]+)\"|"
+    r"'(?:\.[\\/])?(?P<single_path>scripts[\\/][^'\r\n]+)'|"
+    r"(?:\$(?:PSScriptRoot|\{PSScriptRoot\})[\\/]|%~dp0[\\/]?)?"
+    r"(?:\.[\\/])?(?P<unquoted_path>scripts[\\/][A-Za-z0-9_.\\/-]+)"
+    r")"
     r"(?=\s|$|[;&|])",
     re.IGNORECASE,
 )
@@ -260,12 +271,78 @@ def outside_fenced_code(text: str) -> str:
 def markdown_link_target(raw_target: str) -> str:
     """Extract a Markdown link destination without confusing titles or URIs."""
     value = raw_target.strip()
-    if value.startswith("<"):
-        closing = value.find(">", 1)
-        target = value[1:closing] if closing != -1 else value[1:]
+    if value.startswith("<") and value.endswith(">"):
+        target = value[1:-1]
     else:
         target = value.split(maxsplit=1)[0]
-    return target.split("#", 1)[0]
+    return target
+
+
+def commonmark_unescape(value: str) -> str:
+    """Decode punctuation escapes that are valid in CommonMark destinations."""
+    return COMMONMARK_BACKSLASH_ESCAPE_RE.sub(r"\1", value)
+
+
+def commonmark_path(value: str) -> str:
+    """Return the filesystem path part of a CommonMark link destination."""
+    return commonmark_unescape(value).split("#", 1)[0]
+
+
+def find_unescaped(text: str, start: int, delimiter: str) -> int | None:
+    """Find a same-line delimiter that is not preceded by an odd slash count."""
+    preceding_backslashes = 0
+    for index in range(start, len(text)):
+        character = text[index]
+        if character in "\r\n":
+            return None
+        if character == "\\":
+            preceding_backslashes += 1
+            continue
+        if character == delimiter and preceding_backslashes % 2 == 0:
+            return index
+        preceding_backslashes = 0
+    return None
+
+
+def markdown_link_targets(text: str) -> list[str]:
+    """Extract inline-link destinations with escapes and balanced parentheses."""
+    targets: list[str] = []
+    for match in MARKDOWN_LINK_START_RE.finditer(text):
+        start = match.end()
+        while start < len(text) and text[start] in " \t":
+            start += 1
+        if start >= len(text):
+            continue
+        if text[start] == "<":
+            end = find_unescaped(text, start + 1, ">")
+            if end is not None and find_unescaped(text, end + 1, ")") is not None:
+                targets.append(text[start : end + 1])
+            continue
+
+        depth = 0
+        index = start
+        while index < len(text):
+            character = text[index]
+            if character in "\r\n":
+                break
+            if character == "\\" and index + 1 < len(text):
+                if text[index + 1] in "\r\n":
+                    break
+                index += 2
+                continue
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                if depth == 0:
+                    targets.append(text[start:index])
+                    break
+                depth -= 1
+            elif character in " \t" and depth == 0:
+                if find_unescaped(text, index + 1, ")") is not None:
+                    targets.append(text[start:index])
+                break
+            index += 1
+    return targets
 
 
 def shell_script_path(language: str, line: str) -> str | None:
@@ -281,10 +358,27 @@ def shell_script_path(language: str, line: str) -> str | None:
         or re.match(r"(?i)^@?rem(?:\s|$)", stripped)
     ):
         return None
+    powershell_prompt = bool(
+        language in SESSION_FENCE_LANGUAGES
+        and re.match(r"^\s*PS(?:\s+[^>\r\n]*)?>", line, re.IGNORECASE)
+    )
+    if (
+        language in POWERSHELL_FENCE_LANGUAGES or powershell_prompt
+    ) and stripped.startswith(("'", '"')):
+        return None
     match = SHELL_SCRIPT_CALL_RE.match(command)
     if match is None:
         return None
-    return match.group("path").replace("\\", "/")
+    path = next(
+        value
+        for value in (
+            match.group("double_path"),
+            match.group("single_path"),
+            match.group("unquoted_path"),
+        )
+        if value is not None
+    )
+    return path.replace("\\", "/")
 
 
 def extract_paths(text: str) -> dict[str, bool]:
@@ -297,13 +391,14 @@ def extract_paths(text: str) -> dict[str, bool]:
         script_path = shell_script_path(language, line)
         if script_path:
             paths[script_path] = False
-    for raw_target in MARKDOWN_LINK_RE.findall(instruction_text):
+    for raw_target in markdown_link_targets(instruction_text):
         target = markdown_link_target(raw_target)
-        windows_target = PureWindowsPath(target)
-        if target and (
+        comparison_target = commonmark_path(target)
+        windows_target = PureWindowsPath(comparison_target)
+        if comparison_target and (
             windows_target.drive
             or windows_target.root
-            or not URI_SCHEME_RE.match(target)
+            or not URI_SCHEME_RE.match(comparison_target)
         ):
             paths[target] = True
     return paths
@@ -696,9 +791,12 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
         visited.add(source)
         source_text = file_texts[source]
         for raw, required_pointer in extract_paths(source_text).items():
-            raw_path = raw.split("#", 1)[0]
+            raw_path = raw
             if not raw_path:
                 continue
+            source_path = raw_path
+            if required_pointer:
+                raw_path = commonmark_path(raw_path)
             windows_pointer = PureWindowsPath(raw_path)
             if (
                 windows_pointer.drive
@@ -710,9 +808,33 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                     "error",
                     "pointer.target_outside",
                     source,
-                    f'Referenced path "{raw_path}" is drive-qualified, rooted, or absolute.',
+                    f'Referenced path "{source_path}" is drive-qualified, rooted, or absolute.',
                     "Use a package-relative pointer with forward-slash separators.",
-                    line_number(source_text, raw_path),
+                    line_number(source_text, source_path),
+                )
+                continue
+            if "\\" in raw_path:
+                add_finding(
+                    findings,
+                    "error",
+                    "pointer.target_nonportable",
+                    source,
+                    f'Referenced path "{source_path}" uses backslash separators.',
+                    "Use forward-slash separators in package-relative Markdown pointers.",
+                    line_number(source_text, source_path),
+                )
+                continue
+            filename_issue = windows_filename_issue(PurePosixPath(raw_path).parts)
+            if filename_issue is not None:
+                add_finding(
+                    findings,
+                    "error",
+                    "pointer.target_nonportable",
+                    source,
+                    f'Referenced path "{source_path}" is not Windows-portable: '
+                    f"{filename_issue}.",
+                    "Use Windows-portable names in package-relative Markdown pointers.",
+                    line_number(source_text, source_path),
                 )
                 continue
             if raw_path.startswith(("scripts/", "references/", "assets/", "evals/")):
@@ -728,9 +850,9 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                     "error",
                     "pointer.target_outside",
                     source,
-                    f'Referenced path "{raw_path}" resolves outside the skill package.',
+                    f'Referenced path "{source_path}" resolves outside the skill package.',
                     "Keep review resources inside the target skill root.",
-                    line_number(source_text, raw_path),
+                    line_number(source_text, source_path),
                 )
                 continue
             if redirect is not None:
@@ -742,9 +864,9 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                     "error",
                     "pointer.target_missing",
                     source,
-                    f'Referenced path "{raw_path}" does not exist.',
+                    f'Referenced path "{source_path}" does not exist.',
                     "Correct the pointer or add the required resource.",
-                    line_number(source_text, raw_path),
+                    line_number(source_text, source_path),
                 )
             elif resolved.exists() and resolved in file_texts and resolved not in visited:
                 reachable_references.add(resolved)

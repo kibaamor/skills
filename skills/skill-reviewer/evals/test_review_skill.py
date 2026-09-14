@@ -50,9 +50,9 @@ def symlink_or_skip(
         raise
 
 
-def junction_or_skip(test_case: unittest.TestCase, link: Path, target: Path) -> None:
+def junction_or_fail(test_case: unittest.TestCase, link: Path, target: Path) -> None:
     if os.name != "nt":
-        test_case.skipTest("Directory junctions require Windows")
+        test_case.fail("Directory junction tests must be guarded as Windows-only")
     completed = subprocess.run(
         ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
         check=False,
@@ -60,8 +60,22 @@ def junction_or_skip(test_case: unittest.TestCase, link: Path, target: Path) -> 
         text=True,
     )
     if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout).strip()
-        test_case.skipTest(f"Could not create a Windows directory junction: {detail}")
+        test_case.fail(
+            "Could not create a Windows directory junction "
+            f'from "{link}" to "{target}" (exit {completed.returncode}).\n'
+            f"stdout:\n{completed.stdout}\n"
+            f"stderr:\n{completed.stderr}"
+        )
+    attributes = getattr(os.lstat(link), "st_file_attributes", 0)
+    if (
+        not attributes & REVIEW.WINDOWS_REPARSE_POINT
+        or not REVIEW.is_link_like(link)
+    ):
+        os.rmdir(link)
+        test_case.fail(
+            "Created junction was not detected as a reparse point: "
+            f"attributes={attributes:#x}"
+        )
 
 
 def skill_text(name: str, extra_frontmatter: str = "", body: str = "Do the task.") -> str:
@@ -185,6 +199,81 @@ class StaticReviewTests(unittest.TestCase):
         self.assertEqual(codes.count("pointer.target_outside"), 2)
         self.assertNotIn("pointer.target_missing", codes)
 
+    def test_rejects_backslash_markdown_pointer_as_nonportable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "portable-pointer-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "portable-pointer-skill",
+                    body=r"Read [the guide](references\guide.md).",
+                ),
+            )
+            write(root / "references" / "guide.md", "# Guide\n")
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        codes = {finding["code"] for finding in result["findings"]}
+        self.assertIn("pointer.target_nonportable", codes)
+        self.assertNotIn("pointer.target_missing", codes)
+
+    def test_handles_commonmark_pointer_escaping_and_nesting(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "[bad](references/a"
+                + "\\"
+                + "\n[next](references/guide.md))"
+            ),
+            ["references/guide.md"],
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "escaped-pointer-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "escaped-pointer-skill",
+                    body=(
+                        "Read [the guide](<references/guide\\(v2\\).md>).\n"
+                        "Read [the nested guide]"
+                        "(references/guide(v2).md#intro).\n"
+                        r"Read [the fragment](references/guide.md\#intro)."
+                    ),
+                ),
+            )
+            write(root / "references" / "guide(v2).md", "# Guide\n")
+            write(root / "references" / "guide.md", "# Fragment guide\n")
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 0)
+        codes = {finding["code"] for finding in result["findings"]}
+        self.assertNotIn("pointer.target_nonportable", codes)
+        self.assertNotIn("pointer.target_missing", codes)
+
+    def test_parses_escaped_angle_closer_before_portability_check(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "escaped-angle-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "escaped-angle-skill",
+                    body=r"Read [the guide](<references/a\>b.md#intro>).",
+                ),
+            )
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        findings = [
+            finding
+            for finding in result["findings"]
+            if finding["code"] == "pointer.target_nonportable"
+        ]
+        self.assertEqual(len(findings), 1)
+        self.assertIn("Windows-invalid character", findings[0]["message"])
+        self.assertNotIn(
+            "pointer.target_missing",
+            {finding["code"] for finding in result["findings"]},
+        )
+
     def test_fenced_resource_paths_do_not_hide_orphaned_resources(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "fenced-skill"
@@ -252,6 +341,56 @@ class StaticReviewTests(unittest.TestCase):
             }.isdisjoint(unreferenced)
         )
 
+    def test_windows_shell_forms_count_as_script_mentions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repository with spaces" / "windows-command-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "windows-command-skill",
+                    body=(
+                        "```powershell\n"
+                        '& "$PSScriptRoot\\scripts\\from root.ps1" -Mode safe\n'
+                        '& "${PSScriptRoot}\\scripts\\from braced root.ps1" -Mode safe\n'
+                        "powershell.exe -NoProfile -File "
+                        '".\\scripts\\quoted path.ps1" --help\n'
+                        "```\n\n"
+                        "```cmd\n"
+                        'call "%~dp0scripts\\from batch.cmd" /?\n'
+                        "```\n\n"
+                        "```shell-session\n"
+                        '\\\\server\\share> call ".\\scripts\\unc console.cmd" /?\n'
+                        "```"
+                    ),
+                ),
+            )
+            for script_name, help_text in (
+                ("from root.ps1", "# .SYNOPSIS\n"),
+                ("from braced root.ps1", "# .SYNOPSIS\n"),
+                ("quoted path.ps1", "# .SYNOPSIS\n"),
+                ("from batch.cmd", "@rem /?\n"),
+                ("unc console.cmd", "@rem /?\n"),
+            ):
+                write(root / "scripts" / script_name, help_text)
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 0)
+        unreferenced = {
+            Path(finding["path"]).name
+            for finding in result["findings"]
+            if finding["code"] == "script.unreferenced"
+        }
+        self.assertTrue(
+            {
+                "from root.ps1",
+                "from braced root.ps1",
+                "quoted path.ps1",
+                "from batch.cmd",
+                "unc console.cmd",
+            }.isdisjoint(unreferenced),
+            unreferenced,
+        )
+
     def test_scans_native_windows_scripts_for_interactive_prompts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "windows-script-skill"
@@ -285,6 +424,21 @@ class StaticReviewTests(unittest.TestCase):
                         "```bash\n"
                         "echo scripts/echo_example.py\n"
                         "# python scripts/comment_example.py --help\n"
+                        "```\n\n"
+                        "```powershell\n"
+                        'Write-Output "scripts/powershell_output.ps1"\n'
+                        '"scripts/bare quoted.ps1"\n'
+                        '"$PSScriptRoot\\scripts\\bare rooted.ps1"\n'
+                        '& \'$PSScriptRoot\\scripts\\literal_variable.ps1\'\n'
+                        "# & \"$PSScriptRoot\\scripts\\commented.ps1\"\n"
+                        "```\n\n"
+                        "```cmd\n"
+                        "REM call scripts\\remarked.cmd /?\n"
+                        "```\n\n"
+                        "```shell-session\n"
+                        "$ echo scripts/session_echo.py\n"
+                        'PS C:\\repo> "scripts\\session literal.ps1"\n'
+                        "scripts/session_output.py\n"
                         "```"
                     ),
                 ),
@@ -293,6 +447,15 @@ class StaticReviewTests(unittest.TestCase):
                 "markdown_example.py",
                 "echo_example.py",
                 "comment_example.py",
+                "powershell_output.ps1",
+                "bare quoted.ps1",
+                "bare rooted.ps1",
+                "literal_variable.ps1",
+                "commented.ps1",
+                "remarked.cmd",
+                "session_echo.py",
+                "session literal.ps1",
+                "session_output.py",
             ):
                 write(root / "scripts" / script_name, "# --help\n")
             result, status = REVIEW.static_review(root, 100)
@@ -309,6 +472,15 @@ class StaticReviewTests(unittest.TestCase):
                 "markdown_example.py",
                 "echo_example.py",
                 "comment_example.py",
+                "powershell_output.ps1",
+                "bare quoted.ps1",
+                "bare rooted.ps1",
+                "literal_variable.ps1",
+                "commented.ps1",
+                "remarked.cmd",
+                "session_echo.py",
+                "session literal.ps1",
+                "session_output.py",
             },
         )
 
@@ -384,16 +556,79 @@ class StaticReviewTests(unittest.TestCase):
                 outside_agents / "openai.yaml",
                 'interface:\n  default_prompt: "Do not mention the skill token"\n',
             )
-            junction_or_skip(self, link, outside_agents)
+            junction_or_fail(self, link, outside_agents)
             try:
-                result, _ = REVIEW.static_review(root, 100)
+                result, status = REVIEW.static_review(root, 100)
             finally:
                 if os.path.lexists(link):
                     os.rmdir(link)
+            self.assertTrue((outside_agents / "openai.yaml").is_file())
 
         codes = {finding["code"] for finding in result["findings"]}
-        self.assertIn("package.metadata_symlink", codes)
+        self.assertEqual(status, 1)
+        self.assertTrue(
+            {"package.metadata_symlink", "package.metadata_outside"}.issubset(codes)
+        )
         self.assertNotIn("metadata.default_prompt_missing_skill", codes)
+
+    @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
+    def test_reference_directory_junctions_are_not_read(self) -> None:
+        for index, relative_directory in enumerate(
+            ("references", "references/nested")
+        ):
+            with self.subTest(relative_directory=relative_directory):
+                with tempfile.TemporaryDirectory() as temporary:
+                    temporary_root = Path(temporary)
+                    root = temporary_root / f"resource-skill-{index}"
+                    outside = temporary_root / f"outside-references-{index}"
+                    pointer = f"{relative_directory}/guide.md"
+                    write(
+                        root / "SKILL.md",
+                        skill_text(
+                            f"resource-skill-{index}",
+                            body=f"Read [the guide]({pointer}).",
+                        ),
+                    )
+                    write(
+                        outside / "guide.md",
+                        "EXTERNAL_REFERENCE_SENTINEL\n"
+                        "Read [missing](references/external-sentinel.md).\n",
+                    )
+                    link = root / relative_directory
+                    link.parent.mkdir(parents=True, exist_ok=True)
+                    junction_or_fail(self, link, outside)
+                    guarded_paths = {
+                        Path(os.path.abspath(link / "guide.md")),
+                        Path(os.path.abspath(outside / "guide.md")),
+                    }
+                    real_read_text = Path.read_text
+
+                    def guarded_read_text(
+                        path: Path, *args: object, **kwargs: object
+                    ) -> str:
+                        self.assertNotIn(Path(os.path.abspath(path)), guarded_paths)
+                        return real_read_text(path, *args, **kwargs)
+
+                    try:
+                        with mock.patch.object(
+                            Path, "read_text", guarded_read_text
+                        ):
+                            result, status = REVIEW.static_review(root, 100)
+                    finally:
+                        if os.path.lexists(link):
+                            os.rmdir(link)
+                    self.assertTrue((outside / "guide.md").is_file())
+
+                self.assertEqual(status, 1)
+                codes = {finding["code"] for finding in result["findings"]}
+                self.assertTrue(
+                    {"package.resource_symlink", "pointer.target_outside"}.issubset(
+                        codes
+                    )
+                )
+                self.assertEqual(result["facts"]["resource_files"]["references"], 1)
+                self.assertNotIn("EXTERNAL_REFERENCE_SENTINEL", json.dumps(result))
+                self.assertNotIn("external-sentinel.md", json.dumps(result))
 
     def test_rejects_pointer_resolving_through_symlink_outside_package(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -708,6 +943,104 @@ class EvalsValidationTests(unittest.TestCase):
             {finding["code"] for finding in result["findings"]},
         )
 
+    @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
+    def test_rejects_eval_definition_below_junctioned_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "target-skill"
+            outside = temporary_root / "outside-skill"
+            write(root / "SKILL.md", skill_text("target-skill"))
+            write(
+                outside / "evals" / "evals.json",
+                json.dumps(
+                    {
+                        "skill_name": "EXTERNAL_EVAL_SENTINEL",
+                        "evals": [
+                            {
+                                "id": "one",
+                                "prompt": "External prompt one.",
+                                "expected_output": "External result one.",
+                            },
+                            {
+                                "id": "two",
+                                "prompt": "External prompt two.",
+                                "expected_output": "External result two.",
+                            },
+                        ],
+                    }
+                ),
+            )
+            link = root / "evals"
+            junction_or_fail(self, link, outside / "evals")
+            try:
+                result, status = REVIEW.validate_evals(link / "evals.json", 100)
+            finally:
+                if os.path.lexists(link):
+                    os.rmdir(link)
+            self.assertTrue((outside / "evals" / "evals.json").is_file())
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "evals.definition_symlink",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertEqual(
+            result["facts"],
+            {
+                "skill_name": None,
+                "target_skill_name": None,
+                "eval_count": 0,
+                "assertion_count": 0,
+            },
+        )
+        self.assertNotIn("EXTERNAL_EVAL_SENTINEL", json.dumps(result))
+
+    @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
+    def test_rejects_fixture_below_outside_junction_without_reading(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "fixture-skill"
+            outside = temporary_root / "outside-fixtures"
+            write(root / "SKILL.md", skill_text("fixture-skill"))
+            write(outside / "input.txt", "EXTERNAL_FIXTURE_SENTINEL\n")
+            evals_path = root / "evals" / "evals.json"
+            write(
+                evals_path,
+                json.dumps(
+                    {
+                        "skill_name": "fixture-skill",
+                        "evals": [
+                            {
+                                "id": "outside-fixture",
+                                "prompt": "Use the fixture.",
+                                "expected_output": "A bounded result.",
+                                "files": ["evals/files/input.txt"],
+                            },
+                            {
+                                "id": "ordinary-case",
+                                "prompt": "Run another case.",
+                                "expected_output": "Another bounded result.",
+                            },
+                        ],
+                    }
+                ),
+            )
+            link = root / "evals" / "files"
+            junction_or_fail(self, link, outside)
+            try:
+                result, status = REVIEW.validate_evals(evals_path, 100)
+            finally:
+                if os.path.lexists(link):
+                    os.rmdir(link)
+            self.assertTrue((outside / "input.txt").is_file())
+
+        self.assertEqual(status, 1)
+        codes = {finding["code"] for finding in result["findings"]}
+        self.assertIn("evals.file_outside_skill", codes)
+        self.assertNotIn("evals.file_missing", codes)
+        self.assertEqual(result["facts"]["eval_count"], 2)
+        self.assertNotIn("EXTERNAL_FIXTURE_SENTINEL", json.dumps(result))
+
     def test_rejects_duplicate_assertions_within_an_eval(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "right-skill"
@@ -905,6 +1238,102 @@ class TriggerValidationTests(unittest.TestCase):
             {finding["code"] for finding in result["findings"]},
         )
 
+    @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
+    def test_rejects_trigger_definition_below_junctioned_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "target-skill"
+            outside = temporary_root / "outside-skill"
+            write(root / "SKILL.md", skill_text("target-skill"))
+            external_queries = trigger_queries()
+            external_queries[0]["query"] = "EXTERNAL_TRIGGER_SENTINEL"
+            write(
+                outside / "evals" / "trigger_queries.json",
+                json.dumps(external_queries),
+            )
+            link = root / "evals"
+            junction_or_fail(self, link, outside / "evals")
+            try:
+                result, status = REVIEW.validate_triggers(
+                    link / "trigger_queries.json", 100
+                )
+            finally:
+                if os.path.lexists(link):
+                    os.rmdir(link)
+            self.assertTrue(
+                (outside / "evals" / "trigger_queries.json").is_file()
+            )
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "triggers.definition_symlink",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertEqual(result["facts"]["query_count"], 0)
+        self.assertEqual(result["facts"]["unique_query_count"], 0)
+        self.assertEqual(
+            result["facts"]["coverage"],
+            {
+                "train": {"positive": 0, "negative": 0},
+                "validation": {"positive": 0, "negative": 0},
+            },
+        )
+        self.assertNotIn("EXTERNAL_TRIGGER_SENTINEL", json.dumps(result))
+
+
+class RootAliasTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
+    def test_accepts_package_root_junction_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "aliased-skill"
+            alias = temporary_root / "selected-package-alias"
+            write(root / "SKILL.md", skill_text("aliased-skill"))
+            write(
+                root / "evals" / "evals.json",
+                json.dumps(
+                    {
+                        "skill_name": "aliased-skill",
+                        "evals": [
+                            {
+                                "id": "one",
+                                "prompt": "Run the first case.",
+                                "expected_output": "The first result.",
+                            },
+                            {
+                                "id": "two",
+                                "prompt": "Run the second case.",
+                                "expected_output": "The second result.",
+                            },
+                        ],
+                    }
+                ),
+            )
+            write(
+                root / "evals" / "trigger_queries.json",
+                json.dumps(trigger_queries()),
+            )
+            expected_subject = str(root.resolve())
+            junction_or_fail(self, alias, root)
+            try:
+                static_result, static_status = REVIEW.static_review(alias, 100)
+                evals_result, evals_status = REVIEW.validate_evals(
+                    alias / "evals" / "evals.json", 100
+                )
+                triggers_result, triggers_status = REVIEW.validate_triggers(
+                    alias / "evals" / "trigger_queries.json", 100
+                )
+            finally:
+                if os.path.lexists(alias):
+                    os.rmdir(alias)
+            self.assertTrue((root / "SKILL.md").is_file())
+
+        self.assertEqual((static_status, evals_status, triggers_status), (0, 0, 0))
+        self.assertEqual(static_result["subject"], expected_subject)
+        self.assertEqual(static_result["facts"]["skill_name"], "aliased-skill")
+        self.assertEqual(evals_result["facts"]["eval_count"], 2)
+        self.assertEqual(triggers_result["facts"]["query_count"], 4)
+
 
 class AggregateTests(unittest.TestCase):
     def write_run(
@@ -945,6 +1374,44 @@ class AggregateTests(unittest.TestCase):
             result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
 
         self.assertEqual(status, 0)
+        self.assertTrue(result["facts"]["complete"])
+        self.assertEqual(result["facts"]["delta"]["pass_rate"], 1.0)
+
+    @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
+    def test_accepts_iteration_root_junction_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "iteration"
+            alias = temporary_root / "selected-iteration-alias"
+            self.write_run(
+                root,
+                "eval-one",
+                "with_skill",
+                grading([("Has result", True, "Found output.json")]),
+                1200,
+                3000,
+            )
+            self.write_run(
+                root,
+                "eval-one",
+                "old_skill",
+                grading([("Has result", False, "output.json is absent")]),
+                900,
+                2000,
+            )
+            expected_subject = str(root.resolve())
+            junction_or_fail(self, alias, root)
+            try:
+                result, status = REVIEW.aggregate(
+                    alias, "with_skill", "old_skill", 100
+                )
+            finally:
+                if os.path.lexists(alias):
+                    os.rmdir(alias)
+            self.assertTrue((root / "eval-one" / "with_skill").is_dir())
+
+        self.assertEqual(status, 0)
+        self.assertEqual(result["subject"], expected_subject)
         self.assertTrue(result["facts"]["complete"])
         self.assertEqual(result["facts"]["delta"]["pass_rate"], 1.0)
 
@@ -1199,31 +1666,109 @@ class AggregateTests(unittest.TestCase):
             )
             linked_config = root / "eval-one" / "with_skill"
             linked_config.parent.mkdir(parents=True)
-            junction_or_skip(self, linked_config, external)
-            self.write_run(
-                root,
-                "eval-one",
-                "old_skill",
-                grading([("Has result", False, "output.json is absent")]),
-                900,
-                2000,
-            )
+            junction_or_fail(self, linked_config, external)
             try:
+                self.write_run(
+                    root,
+                    "eval-one",
+                    "old_skill",
+                    grading([("Has result", False, "output.json is absent")]),
+                    900,
+                    2000,
+                )
                 result, status = REVIEW.aggregate(
                     root, "with_skill", "old_skill", 100
                 )
             finally:
                 if os.path.lexists(linked_config):
                     os.rmdir(linked_config)
+            self.assertTrue((external / "grading.json").is_file())
+            self.assertTrue((external / "timing.json").is_file())
+
+        self.assertEqual(status, 1)
+        self.assertTrue(
+            {"aggregate.path_symlink", "aggregate.configuration_missing"}.issubset(
+                {finding["code"] for finding in result["findings"]}
+            )
+        )
+        self.assertNotIn("with_skill", result["facts"]["run_summary"])
+        self.assertIsNone(result["facts"]["delta"])
+        self.assertNotIn("424242", json.dumps(result))
+
+    @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
+    def test_rejects_junctioned_eval_directory_without_reading(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "iteration"
+            external = temporary_root / "external-eval"
+            root.mkdir()
+            for configuration, passed in (("with_skill", True), ("old_skill", False)):
+                write(
+                    external / configuration / "grading.json",
+                    json.dumps(
+                        grading(
+                            [
+                                (
+                                    "Has result",
+                                    passed,
+                                    "External result sentinel",
+                                )
+                            ]
+                        )
+                    ),
+                )
+                write(
+                    external / configuration / "timing.json",
+                    json.dumps({"total_tokens": 424242, "duration_ms": 3000}),
+                )
+            link = root / "eval-one"
+            junction_or_fail(self, link, external)
+            try:
+                result, status = REVIEW.aggregate(
+                    root, "with_skill", "old_skill", 100
+                )
+            finally:
+                if os.path.lexists(link):
+                    os.rmdir(link)
+            self.assertTrue((external / "with_skill" / "grading.json").is_file())
+            self.assertTrue((external / "old_skill" / "timing.json").is_file())
 
         self.assertEqual(status, 1)
         self.assertIn(
             "aggregate.path_symlink",
             {finding["code"] for finding in result["findings"]},
         )
+        self.assertEqual(result["facts"]["runs"], [])
+        self.assertEqual(result["facts"]["run_summary"], {})
+        self.assertIsNone(result["facts"]["delta"])
+        self.assertFalse(result["facts"]["complete"])
+        self.assertNotIn("424242", json.dumps(result))
 
 
 class InterfaceTests(unittest.TestCase):
+    def test_junction_creation_failure_is_not_skipped(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=["cmd.exe", "mklink"],
+            returncode=9,
+            stdout="JUNCTION_STDOUT_SENTINEL",
+            stderr="JUNCTION_STDERR_SENTINEL",
+        )
+        link = Path("junction-link")
+        target = Path("junction-target")
+        with (
+            mock.patch.object(os, "name", "nt"),
+            mock.patch.object(subprocess, "run", return_value=completed),
+            self.assertRaises(self.failureException) as caught,
+        ):
+            junction_or_fail(self, link, target)
+
+        message = str(caught.exception)
+        self.assertIn("exit 9", message)
+        self.assertIn(str(link), message)
+        self.assertIn(str(target), message)
+        self.assertIn("JUNCTION_STDOUT_SENTINEL", message)
+        self.assertIn("JUNCTION_STDERR_SENTINEL", message)
+
     def test_every_subcommand_help_documents_exit_codes(self) -> None:
         for subcommand in (
             "static",
