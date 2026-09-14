@@ -38,6 +38,7 @@ npx skills@latest add kibaamor/skills --skill skill-reviewer
 skills/
   <skill-name>/
     SKILL.md       # required skill definition and instructions
+    agents/        # optional client-specific metadata
     references/    # optional supporting docs loaded on demand
     scripts/       # optional helper scripts bundled with the skill
     assets/        # optional static assets bundled with the skill
@@ -58,13 +59,11 @@ skill installation`, run the command with Copilot environment variables unset:
 env -u COPILOT_MODEL -u COPILOT_GITHUB_TOKEN npx skills@latest add kibaamor/skills -g
 ```
 
-## Contributing a skill
+## Contributing
 
-- Each skill lives at `skills/<name>/SKILL.md`.
-- `SKILL.md` frontmatter requires `name` (lowercase, hyphens, must equal the directory name) and `description`.
-- Keep the `description` precise: it should say when the skill should be used and, where helpful, when it should not be used.
-- Put long examples, checklists, scripts, and background material in bundled `references/`, `scripts/`, or `assets/` files instead of overloading `SKILL.md`.
-- If the skill includes behavioral expectations, add eval fixtures under `evals/` so future changes can be checked deliberately.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for repository
+conventions, skill authoring guidance, validation steps, and pull request
+expectations.
 
 ## License
 
