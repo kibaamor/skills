@@ -1,10 +1,12 @@
 # Fix Records
 
-Load this file before writing `Fix Records`.
+Load this file only when the user explicitly asks for a separate `Fix Records` appendix. Do not use this file for the default stakeholder summary.
 
-List only effective changed results: landed fix commits, submitted source-control changes, published config or data changes, migrations that ran, or build/deployment/version records that prove where the fix took effect.
+List only final effective changed results: landed fix commits, submitted source-control changes, published config or data changes, migrations that ran, or build/deployment/version records that prove where the fix took effect.
 
-Do not list process artifacts as fix records: merge requests, reviews, pipeline runs, draft branches, merge-only commits, temporary branches, or pending changes. You may cite those artifacts only when they contain the authoritative effective record and no better source is available.
+Do not list process or intermediate repair artifacts as fix records: merge requests, reviews, pipeline runs, draft branches, merge-only commits, temporary branches, superseded commits, reverted attempts, partial fixes, investigation notes, or pending changes. You may cite those artifacts only when they contain the authoritative effective record and no better source is available.
+
+When several records describe the same fix, choose the latest record that proves the fix became effective. Prefer deployment, build version, release version, published config/data, or completed migration records when they prove runtime effect. Use landed commits or submitted changes only when no later effective publication record is available. If code plus config, data, migration, or client release records are all required for the fix to work, list each required final record once.
 
 If a record proves merge but not deployment, say it landed or merged. If a record proves deployment but not client adoption, say it was deployed and keep client adoption separate.
 
@@ -14,7 +16,7 @@ If a record proves merge but not deployment, say it landed or merged. If a recor
 - `<Source> <branch/environment/scope>`: [`<display ID>`](<authoritative URL>) - `<functional change>`
 ```
 
-If no effective record is available, ask for the final commit/change/config/data/build/deployment record. Continue without one only after explicit approval; then write `No effective fix record is available to cite`.
+If no final effective record is available, ask for the final commit/change/config/data/build/deployment record. Continue without one only after explicit approval; then write `No effective fix record is available to cite`.
 
 ## Git
 
