@@ -74,6 +74,57 @@
         "The report names the implementation conflict and what evidence would resolve it",
         "No equal-authority conflict is resolved by guessing"
       ]
+    },
+    {
+      "id": "insufficient-evidence-stops",
+      "prompt": "Create repository knowledge docs for evals/files/insufficient-evidence.",
+      "expected_output": "No knowledge documents are created because the fixture lacks a manifest, entry point, build or executable script, and behavior-bearing source file. The report states the insufficient evidence gate and the inspected scope.",
+      "files": [
+        "evals/files/insufficient-evidence/NOTES.md"
+      ],
+      "assertions": [
+        "The sufficiency gate is applied before drafting",
+        "No AGENTS.md, CONTEXT.md, ARCHITECTURE.md, or CODE-MAP.md placeholder is created",
+        "The report names the missing repository signals and the inspected scope"
+      ]
+    },
+    {
+      "id": "duplicate-fact-owner-consolidation",
+      "prompt": "Refresh the knowledge docs in evals/files/duplicate-facts. The duplicated test command should have one durable owner.",
+      "expected_output": "The runnable test command remains owned by AGENTS.md, the duplicate command is removed or replaced with an owner link outside AGENTS.md, and the consolidation is reported.",
+      "files": [
+        "evals/files/duplicate-facts/AGENTS.md",
+        "evals/files/duplicate-facts/ARCHITECTURE.md",
+        "evals/files/duplicate-facts/package.json",
+        "evals/files/duplicate-facts/src/reporting.ts",
+        "evals/files/duplicate-facts/test/reporting.test.ts"
+      ],
+      "assertions": [
+        "Runnable commands follow the document ownership table",
+        "The duplicated durable command fact has a single owner after refresh",
+        "The report includes a consolidation entry naming the affected fact",
+        "Current-state source facts remain backed by source or focused tests"
+      ]
+    },
+    {
+      "id": "nested-inventory-and-adr-retention",
+      "prompt": "Refresh repository knowledge for evals/files/nested-inventory. Preserve nested agent guidance and ADR rationale that still match current source evidence.",
+      "expected_output": "The inventory includes the root guide, nested service guide, and ADR. Materially different nested guidance is retained, ADR rationale is linked or preserved as the decision owner, and source-navigation facts point to current files.",
+      "files": [
+        "evals/files/nested-inventory/AGENTS.md",
+        "evals/files/nested-inventory/CODE-MAP.md",
+        "evals/files/nested-inventory/docs/adr/0001-retry-policy.md",
+        "evals/files/nested-inventory/package.json",
+        "evals/files/nested-inventory/services/payments/AGENTS.md",
+        "evals/files/nested-inventory/services/payments/src/retry.ts",
+        "evals/files/nested-inventory/services/payments/test/retry.test.ts"
+      ],
+      "assertions": [
+        "Nested AGENTS.md and ADR files are inventoried before drafting",
+        "Nested guidance with materially different completion checks is retained",
+        "ADR rationale remains owned by the ADR instead of being duplicated into ARCHITECTURE.md",
+        "Stale CODE-MAP.md paths are corrected from current source evidence"
+      ]
     }
   ]
 }

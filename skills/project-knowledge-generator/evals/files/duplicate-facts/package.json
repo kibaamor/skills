@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "test": "vitest run test/billing.test.ts"
+    "test": "vitest run test/reporting.test.ts"
   },
   "devDependencies": {
     "vitest": "4.1.11"

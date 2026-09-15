@@ -1,0 +1,102 @@
+[
+  {
+    "query": "Create AGENTS.md, ARCHITECTURE.md, and CODE-MAP.md for this repo so coding agents know where to work.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Regenerate the repository knowledge docs from current source and tests, keeping them compact.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Refresh our agent-facing docs after the checkout handlers moved and preserve any valid human notes.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Sync CODE-MAP.md with the current source tree only; leave the other knowledge files alone.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Build a source-backed architecture and navigation guide for this monorepo.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Please create repository-wide context docs for agents, including canonical domain terms only when the code supports them.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Walk me through the repository structure and explain how the main services fit together.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Update the wording in the existing ARCHITECTURE.md introduction to sound less formal.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Review this pull request for bugs in the order submission flow.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Add a section to README.md that explains how to run the test suite.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Fix the broken import in src/orders.ts and update its unit test.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Create a new Codex skill for generating release notes.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Our knowledge docs are stale after a package split; refresh AGENTS.md and the root code map from evidence.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "Generate a compact agent knowledge system for evals/files/create-basic without making placeholder docs.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "Only rebuild CODE-MAP.md so agents can find the new worker and API entry points.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "Refresh repository knowledge and keep ADR rationale owned by the ADR instead of duplicating it.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "Tell me which file handles invoice billing, but do not edit any docs.",
+    "should_trigger": false,
+    "split": "validation"
+  },
+  {
+    "query": "Summarize the current ARCHITECTURE.md for a new teammate.",
+    "should_trigger": false,
+    "split": "validation"
+  },
+  {
+    "query": "Install the project-knowledge-generator skill from this repository.",
+    "should_trigger": false,
+    "split": "validation"
+  },
+  {
+    "query": "Localize CODE-MAP.md into Chinese without changing its technical content.",
+    "should_trigger": false,
+    "split": "validation"
+  }
+]

@@ -1,3 +1,3 @@
 # Architecture
 
-The HTTP API enqueues sync work; the worker processes sync requests separately.
+The sync package exposes an HTTP queueing entry point and a separate worker entry point.

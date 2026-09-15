@@ -1,10 +1,9 @@
 {
   "scripts": {
     "test": "vitest run",
-    "dev": "tsx src/index.ts"
+    "test:payments": "vitest run services/payments/test/retry.test.ts"
   },
   "devDependencies": {
-    "tsx": "4.0.0",
     "vitest": "4.1.11"
   }
 }
