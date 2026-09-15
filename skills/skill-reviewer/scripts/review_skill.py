@@ -1355,6 +1355,8 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             text_inspection_complete = False
             add_text_read_error(findings, path, exc, reported_limits)
 
+    attempted_companions: set[Path] = set()
+    companion_files_attempted = 0
     mentioned: set[Path] = set()
     reachable_references: set[Path] = set()
     queue: deque[Path] = deque([skill_md])
@@ -1443,6 +1445,44 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                     line_number(source_text, source_path),
                 )
                 continue
+            candidate_path = Path(os.path.abspath(candidate))
+            is_root_companion = (
+                required_pointer
+                and resolved.exists()
+                and candidate_path.parent == root
+                and candidate_path.suffix.lower() in {".md", ".txt"}
+            )
+            should_read_companion = is_root_companion and (
+                redirect is not None or resolved not in file_texts
+            )
+            if should_read_companion and candidate_path not in attempted_companions:
+                attempted_companions.add(candidate_path)
+                if companion_files_attempted >= MAX_RESOURCE_ENTRIES:
+                    text_inspection_complete = False
+                    limit_code = "package.resource_entry_limit"
+                    if limit_code not in reported_limits:
+                        reported_limits.add(limit_code)
+                        add_finding(
+                            findings,
+                            "error",
+                            limit_code,
+                            candidate_path,
+                            "Companion instruction traversal stopped after "
+                            f"{MAX_RESOURCE_ENTRIES} files.",
+                            "Consolidate root companion documents or remove "
+                            "unneeded pointers.",
+                        )
+                else:
+                    companion_files_attempted += 1
+                    try:
+                        file_texts[resolved] = read_bounded_regular_utf8(
+                            root, candidate_path, text_budget
+                        )
+                    except TextReadError as exc:
+                        text_inspection_complete = False
+                        add_text_read_error(
+                            findings, candidate_path, exc, reported_limits
+                        )
             if redirect is not None:
                 continue
             mentioned.add(resolved)
@@ -1456,7 +1496,9 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                     "Correct the pointer or add the required resource.",
                     line_number(source_text, source_path),
                 )
-            elif resolved.exists() and resolved in file_texts and resolved not in visited:
+            elif (
+                resolved.exists() and resolved in file_texts and resolved not in visited
+            ):
                 reachable_references.add(resolved)
                 queue.append(resolved)
 

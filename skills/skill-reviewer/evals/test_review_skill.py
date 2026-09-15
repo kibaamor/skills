@@ -180,6 +180,106 @@ class StaticReviewTests(unittest.TestCase):
             {finding["code"] for finding in result["findings"]},
         )
 
+    def test_follows_package_root_companion_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "companion-skill"
+            companion = root / "SKILL-MECHANICS.md"
+            skill_contents = skill_text(
+                "companion-skill",
+                body="Read [the skill mechanics](SKILL-MECHANICS.md).",
+            )
+            companion_contents = "# Skill mechanics\n\nRead [the required guide](references/missing.md).\n"
+            write(root / "SKILL.md", skill_contents)
+            write(companion, companion_contents)
+            expected_bytes = (
+                root / "SKILL.md"
+            ).stat().st_size + companion.stat().st_size
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        missing = next(
+            finding
+            for finding in result["findings"]
+            if finding["code"] == "pointer.target_missing"
+        )
+        self.assertEqual(Path(missing["path"]), companion)
+        self.assertEqual(result["facts"]["text_bytes_read"], expected_bytes)
+
+    def test_limits_package_root_companion_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "companion-limit-skill"
+            first = root / "FIRST.md"
+            second = root / "SECOND.md"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "companion-limit-skill",
+                    body="Read [first](FIRST.md) and [second](SECOND.md).",
+                ),
+            )
+            write(first, "# First\n")
+            write(second, "# Second\n")
+            expected_bytes = (root / "SKILL.md").stat().st_size + first.stat().st_size
+            with mock.patch.object(REVIEW, "MAX_RESOURCE_ENTRIES", 1):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["text_inspection_complete"])
+        self.assertIn(
+            "package.resource_entry_limit",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertEqual(result["facts"]["text_bytes_read"], expected_bytes)
+
+    def test_linked_package_root_companion_is_not_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "linked-companion-skill"
+            companion = root / "COMPANION.md"
+            guide = root / "references" / "guide.md"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "linked-companion-skill",
+                    body="Read [the companion](COMPANION.md).",
+                ),
+            )
+            write(companion, "# Simulated link\n")
+            write(guide, "[unread content](references/missing.md)\n")
+            original_detector = REVIEW.first_link_like_component
+            original_resolver = REVIEW.resolve_within
+
+            def detect_companion_link(package_root: Path, path: Path) -> Path | None:
+                if Path(os.path.abspath(path)) == companion:
+                    return companion
+                return original_detector(package_root, path)
+
+            def resolve_companion_link(
+                package_root: Path, path: Path, *, strict: bool
+            ) -> Path:
+                if Path(os.path.abspath(path)) == companion:
+                    return guide
+                return original_resolver(package_root, path, strict=strict)
+
+            with (
+                mock.patch.object(
+                    REVIEW,
+                    "first_link_like_component",
+                    side_effect=detect_companion_link,
+                ),
+                mock.patch.object(
+                    REVIEW,
+                    "resolve_within",
+                    side_effect=resolve_companion_link,
+                ),
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        codes = {finding["code"] for finding in result["findings"]}
+        self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["text_inspection_complete"])
+        self.assertIn("package.resource_changed", codes)
+        self.assertNotIn("pointer.target_missing", codes)
+
     def test_rejects_windows_anchored_markdown_pointers_on_every_host(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "windows-pointer-skill"
