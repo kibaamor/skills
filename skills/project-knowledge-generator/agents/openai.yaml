@@ -1,4 +1,3 @@
 interface:
   display_name: "Project Knowledge Generator"
-  short_description: "Map project functionality and maintain source-linked knowledge"
-  default_prompt: "Use $project-knowledge-generator to map this repository's functionality and build, refresh, or audit its knowledge base for coding agents."
+  short_description: "Generate or refresh evidence-backed repository knowledge"

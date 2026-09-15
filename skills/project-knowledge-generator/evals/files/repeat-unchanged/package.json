@@ -1,8 +1,0 @@
-{
-  "name": "health-endpoint",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node --test"
-  }
-}
