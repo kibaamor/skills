@@ -43,7 +43,11 @@ If it cannot establish a safe package root, or reports a symbolic link or
 resource that escapes that root, do not manually read through the affected
 path. Report or resolve the boundary issue first. Treat static output as
 bounded mechanical facts and review leads, not as a substitute for judgment or
-YAML schema validation. The preflight never executes target scripts.
+YAML schema validation. The preflight never executes target scripts. It scans
+only ordinary files, rejects FIFOs and other special files, and reports an
+error when its documented entry, depth, per-file, aggregate-text, or Markdown
+pointer limits prevent a complete inspection. Check the returned completeness
+facts before relying on orphaned-resource or script-reference conclusions.
 
 After the boundary preflight:
 
@@ -165,6 +169,15 @@ To aggregate a completed evaluation iteration:
 python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py aggregate /path/to/iteration-1 --candidate with_skill --baseline old_skill --pretty --output /path/to/iteration-1/benchmark.json
 ```
 
+The output path must remain inside the selected iteration. A first write uses
+atomic no-clobber publication; rerunning against an existing ordinary file
+requires `--force`, which atomically replaces its directory entry. Symbolic
+links, junctions, reparse points, special files, and redirecting parent paths
+are rejected even with `--force`. On platforms without directory-relative file
+operations, keep the iteration quiescent during publication because concurrent
+parent replacement can only be checked on a best-effort basis. Use `--output -`
+for stdout only.
+
 ## Report
 
 Lead with the verdict. Then report, in order:
@@ -189,7 +202,8 @@ to make the review appear productive.
 - `validate-evals`: validate the documented `evals/evals.json` structure and
   referenced fixture paths;
 - `aggregate`: aggregate `grading.json` and `timing.json` files, reporting
-  incomplete runs instead of silently dropping them.
+  incomplete runs instead of silently dropping them, with optional safe output
+  publication inside the iteration root.
 
 All subcommands emit JSON by default, put fatal diagnostics on stderr, bound
 their findings, and document exit codes in `--help`. The script requires Python

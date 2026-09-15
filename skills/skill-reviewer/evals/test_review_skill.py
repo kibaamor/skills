@@ -11,6 +11,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -248,6 +249,52 @@ class StaticReviewTests(unittest.TestCase):
         codes = {finding["code"] for finding in result["findings"]}
         self.assertNotIn("pointer.target_nonportable", codes)
         self.assertNotIn("pointer.target_missing", codes)
+
+    def test_malformed_markdown_link_scan_scales_linearly(self) -> None:
+        def elapsed(candidate_count: int) -> float:
+            text = "[x](" * candidate_count
+            started = time.perf_counter()
+            targets = REVIEW.markdown_link_targets(text)
+            duration = time.perf_counter() - started
+            self.assertEqual(targets, [])
+            return duration
+
+        small = elapsed(1_500)
+        large = elapsed(3_000)
+
+        self.assertLessEqual(
+            large,
+            small * 3 + 0.05,
+            f"doubling malformed input took {small:.3f}s then {large:.3f}s",
+        )
+
+    def test_large_malformed_markdown_input_finishes_with_a_bounded_error(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "bounded-markdown-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "bounded-markdown-skill",
+                    body="[x](" * 8_000,
+                ),
+            )
+            completed = subprocess.run(
+                [sys.executable, "-B", str(SCRIPT), "static", str(root)],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        result = json.loads(completed.stdout)
+        self.assertIn(
+            "pointer.scan_limited",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertNotIn("Traceback", completed.stderr)
 
     def test_parses_escaped_angle_closer_before_portability_check(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -520,27 +567,315 @@ class StaticReviewTests(unittest.TestCase):
             write(root / "SKILL.md", skill_text("unreadable-skill"))
             references = root / "references"
             references.mkdir()
-            original_walk = REVIEW.os.walk
+            original_scandir = REVIEW.os.scandir
 
-            def controlled_walk(path: Path, *args: object, **kwargs: object):
+            def controlled_scandir(path: Path):
                 if Path(path) == references:
-                    onerror = kwargs["onerror"]
-                    assert callable(onerror)
-                    error = PermissionError(
+                    raise PermissionError(
                         errno.EACCES,
                         "Permission denied",
                         str(references),
                     )
-                    onerror(error)
-                    return iter(())
-                return original_walk(path, *args, **kwargs)
+                return original_scandir(path)
 
-            with mock.patch.object(REVIEW.os, "walk", side_effect=controlled_walk):
+            with mock.patch.object(
+                REVIEW.os, "scandir", side_effect=controlled_scandir
+            ):
                 result, status = REVIEW.static_review(root, 100)
 
         self.assertEqual(status, 1)
         self.assertIn(
             "package.resource_unreadable",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    @unittest.skipUnless(os.name == "posix", "symbolic links require POSIX")
+    def test_resource_links_make_inventory_incomplete(self) -> None:
+        for nested in (False, True):
+            with self.subTest(nested=nested):
+                with tempfile.TemporaryDirectory() as temporary:
+                    temporary_root = Path(temporary)
+                    root = temporary_root / "linked-resource-skill"
+                    external = temporary_root / "external"
+                    write(root / "SKILL.md", skill_text("linked-resource-skill"))
+                    write(external / "guide.md", "EXTERNAL_SENTINEL\n")
+                    if nested:
+                        link = root / "references" / "guide.md"
+                        link.parent.mkdir()
+                        link.symlink_to(external / "guide.md")
+                    else:
+                        link = root / "references"
+                        link.symlink_to(external, target_is_directory=True)
+
+                    result, status = REVIEW.static_review(root, 100)
+
+                self.assertEqual(status, 1)
+                self.assertFalse(result["facts"]["resource_inventory_complete"])
+                self.assertIn(
+                    "package.resource_symlink",
+                    {finding["code"] for finding in result["findings"]},
+                )
+                self.assertNotIn("EXTERNAL_SENTINEL", json.dumps(result))
+
+    def test_pycache_in_skill_ancestor_does_not_hide_resources(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "__pycache__" / "ancestor-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "ancestor-skill",
+                    body="Read [the guide](references/guide.md).",
+                ),
+            )
+            write(root / "references" / "guide.md", "# Guide\n")
+
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(result["facts"]["resource_files"]["references"], 1)
+        self.assertTrue(result["facts"]["resource_inventory_complete"])
+
+    @unittest.skipUnless(os.name == "posix", "symbolic links require POSIX")
+    def test_queued_resource_directory_cannot_be_swapped_for_a_link(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "swapped-directory-skill"
+            child = root / "references" / "child"
+            parked = temporary_root / "parked-child"
+            external = temporary_root / "external"
+            write(root / "SKILL.md", skill_text("swapped-directory-skill"))
+            child.mkdir(parents=True)
+            write(
+                external / "secret.md",
+                "EXTERNAL_SENTINEL [missing](references/external.md)\n",
+            )
+            original_scandir = REVIEW.os.scandir
+            swapped = False
+
+            def swapping_scandir(path: Path):
+                nonlocal swapped
+                if Path(path) == child and not swapped:
+                    swapped = True
+                    child.rename(parked)
+                    child.symlink_to(external, target_is_directory=True)
+                return original_scandir(path)
+
+            with mock.patch.object(
+                REVIEW.os, "scandir", side_effect=swapping_scandir
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertTrue(swapped)
+        self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["resource_inventory_complete"])
+        self.assertIn(
+            "package.resource_changed",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertNotIn("EXTERNAL_SENTINEL", json.dumps(result))
+
+    def test_bounded_reader_rejects_same_size_change_during_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "guide.md"
+            write(path, "A" * 100_000)
+            original_info = path.stat()
+            original_read = REVIEW.os.read
+            changed = False
+
+            def changing_read(descriptor: int, size: int) -> bytes:
+                nonlocal changed
+                chunk = original_read(descriptor, size)
+                if chunk and not changed:
+                    changed = True
+                    with path.open("r+b") as stream:
+                        stream.write(b"B" * 100_000)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    os.utime(
+                        path,
+                        ns=(
+                            original_info.st_atime_ns,
+                            original_info.st_mtime_ns + 2_000_000_000,
+                        ),
+                    )
+                return chunk
+
+            with (
+                mock.patch.object(REVIEW.os, "read", side_effect=changing_read),
+                mock.patch.object(
+                    REVIEW.os, "close", wraps=REVIEW.os.close
+                ) as close_descriptor,
+                self.assertRaises(REVIEW.TextReadError) as caught,
+            ):
+                REVIEW.read_bounded_regular_utf8(
+                    root, path, REVIEW.TextReadBudget()
+                )
+
+        self.assertTrue(changed)
+        self.assertEqual(caught.exception.code, "package.resource_changed")
+        close_descriptor.assert_called_once()
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "mkfifo"),
+        "FIFO resources require POSIX",
+    )
+    def test_fifo_resource_is_rejected_without_being_opened(self) -> None:
+        for relative in (
+            "SKILL.md",
+            "references/hang.md",
+            "scripts/hang.py",
+            "agents/openai.yaml",
+        ):
+            with self.subTest(relative=relative):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary) / "fifo-resource-skill"
+                    if relative != "SKILL.md":
+                        write(
+                            root / "SKILL.md",
+                            skill_text("fifo-resource-skill"),
+                        )
+                    else:
+                        root.mkdir()
+                    fifo = root / relative
+                    fifo.parent.mkdir(parents=True, exist_ok=True)
+                    os.mkfifo(fifo)
+                    completed = subprocess.run(
+                        [
+                            sys.executable,
+                            "-B",
+                            str(SCRIPT),
+                            "static",
+                            str(root),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=3,
+                    )
+
+                self.assertEqual(completed.returncode, 1, completed.stderr)
+                result = json.loads(completed.stdout)
+                self.assertIn(
+                    "package.resource_special_file",
+                    {finding["code"] for finding in result["findings"]},
+                )
+                self.assertNotIn("Traceback", completed.stderr)
+
+    def test_resource_entry_budget_stops_unbounded_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "entry-budget-skill"
+            write(root / "SKILL.md", skill_text("entry-budget-skill"))
+            for index in range(3):
+                write(root / "assets" / f"asset-{index}.bin", "x")
+            with mock.patch.object(
+                REVIEW, "MAX_RESOURCE_ENTRIES", 2, create=True
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "package.resource_entry_limit",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertFalse(result["facts"]["resource_inventory_complete"])
+
+    def test_resource_depth_budget_stops_deep_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "depth-budget-skill"
+            write(root / "SKILL.md", skill_text("depth-budget-skill"))
+            write(
+                root / "assets" / "one" / "two" / "three" / "asset.bin",
+                "x",
+            )
+            with mock.patch.object(REVIEW, "MAX_RESOURCE_DEPTH", 1, create=True):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "package.resource_depth_limit",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertFalse(result["facts"]["resource_inventory_complete"])
+
+    def test_oversized_text_resource_is_not_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "text-size-budget-skill"
+            oversized = root / "references" / "oversized.md"
+            skill_contents = skill_text(
+                "text-size-budget-skill",
+                body="Read [the guide](references/oversized.md).",
+            )
+            per_file_limit = len(skill_contents.encode("utf-8"))
+            write(root / "SKILL.md", skill_contents)
+            write(oversized, "x" * (per_file_limit + 1))
+            real_read_text = Path.read_text
+
+            def guarded_read_text(
+                path: Path, *args: object, **kwargs: object
+            ) -> str:
+                if path == oversized:
+                    self.fail("oversized instruction resource was read")
+                return real_read_text(path, *args, **kwargs)
+
+            with (
+                mock.patch.object(
+                    REVIEW,
+                    "MAX_TEXT_FILE_BYTES",
+                    per_file_limit,
+                    create=True,
+                ),
+                mock.patch.object(
+                    REVIEW,
+                    "MAX_TOTAL_TEXT_BYTES",
+                    per_file_limit * 3,
+                    create=True,
+                ),
+                mock.patch.object(Path, "read_text", guarded_read_text),
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "package.resource_too_large",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_total_text_budget_stops_reading_later_resources(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "total-text-budget-skill"
+            first = root / "references" / "first.md"
+            second = root / "references" / "second.md"
+            skill_contents = skill_text(
+                "total-text-budget-skill",
+                body=(
+                    "Read [first](references/first.md) and "
+                    "[second](references/second.md)."
+                ),
+            )
+            skill_bytes = len(skill_contents.encode("utf-8"))
+            write(root / "SKILL.md", skill_contents)
+            write(first, "123456")
+            write(second, "abcdef")
+            with (
+                mock.patch.object(
+                    REVIEW,
+                    "MAX_TEXT_FILE_BYTES",
+                    skill_bytes + 1,
+                    create=True,
+                ),
+                mock.patch.object(
+                    REVIEW,
+                    "MAX_TOTAL_TEXT_BYTES",
+                    skill_bytes + 10,
+                    create=True,
+                ),
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "package.resource_text_budget",
             {finding["code"] for finding in result["findings"]},
         )
 
@@ -1352,6 +1687,50 @@ class AggregateTests(unittest.TestCase):
             json.dumps({"total_tokens": tokens, "duration_ms": duration_ms}),
         )
 
+    def write_complete_pair(self, root: Path) -> None:
+        self.write_run(
+            root,
+            "eval-one",
+            "with_skill",
+            grading([("Has result", True, "Found output.json")]),
+            1200,
+            3000,
+        )
+        self.write_run(
+            root,
+            "eval-one",
+            "old_skill",
+            grading([("Has result", False, "output.json is absent")]),
+            900,
+            2000,
+        )
+
+    def run_aggregate_cli(
+        self,
+        root: Path,
+        *extra_arguments: str,
+        cwd: Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPT),
+                "aggregate",
+                str(root),
+                "--candidate",
+                "with_skill",
+                "--baseline",
+                "old_skill",
+                *extra_arguments,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=cwd,
+        )
+
     def test_aggregates_consistent_evidenced_results(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -1743,6 +2122,365 @@ class AggregateTests(unittest.TestCase):
         self.assertIsNone(result["facts"]["delta"])
         self.assertFalse(result["facts"]["complete"])
         self.assertNotIn("424242", json.dumps(result))
+
+    @unittest.skipUnless(
+        os.name == "posix", "symbolic-link output test is POSIX-only"
+    )
+    def test_output_rejects_final_symlink_without_touching_target(self) -> None:
+        for force_arguments in ((), ("--force",)):
+            with self.subTest(force=bool(force_arguments)):
+                with tempfile.TemporaryDirectory() as temporary:
+                    temporary_root = Path(temporary)
+                    root = temporary_root / "iteration"
+                    external = temporary_root / "external.json"
+                    output = root / "benchmark.json"
+                    self.write_complete_pair(root)
+                    write(external, "EXTERNAL_OUTPUT_SENTINEL")
+                    output.symlink_to(external)
+
+                    completed = self.run_aggregate_cli(
+                        root,
+                        "--output",
+                        str(output),
+                        *force_arguments,
+                    )
+
+                    self.assertEqual(
+                        external.read_text(encoding="utf-8"),
+                        "EXTERNAL_OUTPUT_SENTINEL",
+                    )
+                    self.assertTrue(output.is_symlink())
+
+                self.assertEqual(completed.returncode, 2)
+                self.assertEqual(completed.stdout, "")
+                self.assertIn("Error:", completed.stderr)
+                self.assertNotIn("unrecognized arguments", completed.stderr)
+                self.assertTrue(
+                    "symbolic link" in completed.stderr.lower()
+                    or "reparse" in completed.stderr.lower(),
+                    completed.stderr,
+                )
+                self.assertNotIn("Traceback", completed.stderr)
+
+    @unittest.skipUnless(
+        os.name == "posix", "symbolic-link output test is POSIX-only"
+    )
+    def test_output_rejects_symlinked_parent_without_writing_outside(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "iteration"
+            external = temporary_root / "external-reports"
+            linked_parent = root / "reports"
+            external.mkdir()
+            self.write_complete_pair(root)
+            linked_parent.symlink_to(external, target_is_directory=True)
+            external_output = external / "benchmark.json"
+
+            completed = self.run_aggregate_cli(
+                root,
+                "--output",
+                str(linked_parent / "benchmark.json"),
+                "--force",
+            )
+
+            self.assertFalse(external_output.exists())
+            self.assertTrue(linked_parent.is_symlink())
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertEqual(completed.stdout, "")
+        self.assertNotIn("unrecognized arguments", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
+    @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
+    def test_output_rejects_junctioned_parent_without_writing_outside(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "iteration"
+            external = temporary_root / "external-reports"
+            linked_parent = root / "reports"
+            external.mkdir()
+            self.write_complete_pair(root)
+            junction_or_fail(self, linked_parent, external)
+            external_output = external / "benchmark.json"
+            try:
+                completed = self.run_aggregate_cli(
+                    root,
+                    "--output",
+                    str(linked_parent / "benchmark.json"),
+                    "--force",
+                )
+                self.assertFalse(external_output.exists())
+                self.assertTrue(REVIEW.is_link_like(linked_parent))
+            finally:
+                if os.path.lexists(linked_parent):
+                    os.rmdir(linked_parent)
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertEqual(completed.stdout, "")
+        self.assertNotIn("unrecognized arguments", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_output_must_remain_inside_iteration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "iteration"
+            outside = temporary_root / "benchmark.json"
+            self.write_complete_pair(root)
+
+            completed = self.run_aggregate_cli(
+                root,
+                "--output",
+                str(outside),
+            )
+
+            self.assertFalse(outside.exists())
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertEqual(completed.stdout, "")
+        self.assertIn("iteration", completed.stderr.lower())
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_output_refuses_existing_regular_file_without_force(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            output = root / "benchmark.json"
+            self.write_complete_pair(root)
+            write(output, "EXISTING_OUTPUT_SENTINEL")
+
+            completed = self.run_aggregate_cli(root, "--output", str(output))
+
+            self.assertEqual(
+                output.read_text(encoding="utf-8"),
+                "EXISTING_OUTPUT_SENTINEL",
+            )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertEqual(completed.stdout, "")
+        self.assertIn("--force", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_output_new_file_matches_stdout_exactly(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            output = root / "benchmark.json"
+            self.write_complete_pair(root)
+
+            completed = self.run_aggregate_cli(root, "--output", str(output))
+
+            self.assertEqual(completed.stdout, output.read_text(encoding="utf-8"))
+            self.assertFalse(list(root.glob(".skill-review-*.tmp")))
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        json.loads(completed.stdout)
+        self.assertEqual(completed.stderr, "")
+
+    @unittest.skipUnless(os.name == "posix", "long NAME_MAX test requires POSIX")
+    def test_output_supports_a_long_valid_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            output = root / (("x" * 235) + ".json")
+            self.write_complete_pair(root)
+
+            completed = self.run_aggregate_cli(root, "--output", str(output))
+
+            self.assertEqual(completed.stdout, output.read_text(encoding="utf-8"))
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        json.loads(completed.stdout)
+
+    @unittest.skipUnless(os.name == "posix", "symbolic links require POSIX")
+    def test_output_uses_the_iteration_root_fixed_before_alias_retarget(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            original = temporary_root / "original"
+            replacement = temporary_root / "replacement"
+            alias = temporary_root / "iteration-alias"
+            original.mkdir()
+            replacement.mkdir()
+            alias.symlink_to(original, target_is_directory=True)
+            fixed_info = os.lstat(original)
+            alias.unlink()
+            alias.symlink_to(replacement, target_is_directory=True)
+
+            REVIEW.write_aggregate_output(
+                str(alias),
+                str(alias / "benchmark.json"),
+                "EXPECTED\n",
+                force=False,
+                resolved_iteration=original,
+                expected_root_info=fixed_info,
+            )
+
+            self.assertEqual(
+                (original / "benchmark.json").read_text(encoding="utf-8"),
+                "EXPECTED\n",
+            )
+            self.assertFalse((replacement / "benchmark.json").exists())
+
+    @unittest.skipUnless(
+        os.name == "posix" and REVIEW.output_dir_fd_supported(),
+        "directory-descriptor publication requires POSIX dir_fd support",
+    )
+    def test_output_parent_swap_cannot_publish_attacker_temp(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            reports = root / "reports"
+            moved_reports = Path(temporary) / "moved-reports"
+            reports.mkdir(parents=True)
+            fixed_info = os.lstat(root)
+            original_validate = REVIEW.validate_output_entry_info
+            validations = 0
+
+            def swapping_validate(
+                destination: Path,
+                info: os.stat_result | None,
+                *,
+                force: bool,
+            ) -> None:
+                nonlocal validations
+                original_validate(destination, info, force=force)
+                validations += 1
+                if validations == 2:
+                    reports.rename(moved_reports)
+                    reports.mkdir()
+                    temporary_name = next(
+                        moved_reports.glob(".skill-review-*.tmp")
+                    ).name
+                    write(reports / temporary_name, "ATTACKER\n")
+
+            with (
+                mock.patch.object(
+                    REVIEW,
+                    "validate_output_entry_info",
+                    side_effect=swapping_validate,
+                ),
+                self.assertRaisesRegex(ValueError, "parent changed"),
+            ):
+                REVIEW.write_aggregate_output(
+                    str(root),
+                    str(reports / "benchmark.json"),
+                    "EXPECTED\n",
+                    force=False,
+                    resolved_iteration=root,
+                    expected_root_info=fixed_info,
+                )
+
+            self.assertEqual(validations, 2)
+            self.assertFalse((reports / "benchmark.json").exists())
+            self.assertFalse((moved_reports / "benchmark.json").exists())
+            attacker_files = list(reports.glob(".skill-review-*.tmp"))
+            self.assertEqual(len(attacker_files), 1)
+            self.assertEqual(
+                attacker_files[0].read_text(encoding="utf-8"), "ATTACKER\n"
+            )
+            self.assertFalse(list(moved_reports.glob(".skill-review-*.tmp")))
+
+    @unittest.skipUnless(
+        os.name == "posix" and REVIEW.output_dir_fd_supported(),
+        "directory-descriptor publication requires POSIX dir_fd support",
+    )
+    def test_output_parent_swap_rolls_back_forced_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            reports = root / "reports"
+            moved_reports = Path(temporary) / "moved-reports"
+            destination = reports / "benchmark.json"
+            write(destination, "ORIGINAL\n")
+            fixed_info = os.lstat(root)
+            original_validate = REVIEW.validate_output_entry_info
+            validations = 0
+
+            def swapping_validate(
+                output: Path,
+                info: os.stat_result | None,
+                *,
+                force: bool,
+            ) -> None:
+                nonlocal validations
+                original_validate(output, info, force=force)
+                validations += 1
+                if validations == 2:
+                    reports.rename(moved_reports)
+                    reports.mkdir()
+
+            with (
+                mock.patch.object(
+                    REVIEW,
+                    "validate_output_entry_info",
+                    side_effect=swapping_validate,
+                ),
+                self.assertRaisesRegex(ValueError, "parent changed"),
+            ):
+                REVIEW.write_aggregate_output(
+                    str(root),
+                    str(destination),
+                    "REPLACEMENT\n",
+                    force=True,
+                    resolved_iteration=root,
+                    expected_root_info=fixed_info,
+                )
+
+            self.assertEqual(validations, 2)
+            self.assertFalse(destination.exists())
+            self.assertEqual(
+                (moved_reports / "benchmark.json").read_text(encoding="utf-8"),
+                "ORIGINAL\n",
+            )
+            self.assertFalse(list(moved_reports.glob(".skill-review-*.tmp")))
+
+    def test_output_force_replaces_entry_without_mutating_hardlink_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "iteration"
+            external = temporary_root / "external.json"
+            output = root / "benchmark.json"
+            self.write_complete_pair(root)
+            write(external, "EXTERNAL_HARDLINK_SENTINEL")
+            try:
+                os.link(external, output)
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"hard links are unavailable: {exc}")
+            self.assertTrue(os.path.samefile(external, output))
+
+            completed = self.run_aggregate_cli(
+                root,
+                "--output",
+                str(output),
+                "--force",
+            )
+
+            self.assertEqual(
+                external.read_text(encoding="utf-8"),
+                "EXTERNAL_HARDLINK_SENTINEL",
+            )
+            self.assertFalse(os.path.samefile(external, output))
+            self.assertEqual(completed.stdout, output.read_text(encoding="utf-8"))
+            self.assertFalse(list(root.glob(".skill-review-*.tmp")))
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        json.loads(completed.stdout)
+        self.assertEqual(completed.stderr, "")
+
+    def test_output_dash_is_identical_to_stdout_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "iteration"
+            self.write_complete_pair(root)
+
+            ordinary = self.run_aggregate_cli(root, cwd=temporary_root)
+            explicit_stdout = self.run_aggregate_cli(
+                root,
+                "--output",
+                "-",
+                cwd=temporary_root,
+            )
+
+            self.assertFalse((temporary_root / "-").exists())
+
+        self.assertEqual(ordinary.returncode, 0, ordinary.stderr)
+        self.assertEqual(explicit_stdout.returncode, 0, explicit_stdout.stderr)
+        self.assertEqual(explicit_stdout.stdout, ordinary.stdout)
+        json.loads(explicit_stdout.stdout)
 
 
 class InterfaceTests(unittest.TestCase):

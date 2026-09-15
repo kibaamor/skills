@@ -12,9 +12,11 @@ import json
 import math
 import os
 import re
+import secrets
 import stat
 import statistics
 import sys
+import tempfile
 from collections import Counter, defaultdict, deque
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -23,7 +25,6 @@ from typing import Any, Iterable
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 TOP_KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*):(?:\s*(.*))?$")
-MARKDOWN_LINK_START_RE = re.compile(r"(?<!!)\[[^\]\r\n]+\]\(")
 URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 COMMONMARK_BACKSLASH_ESCAPE_RE = re.compile(
     r"""\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])"""
@@ -118,6 +119,14 @@ EXIT_CODES = (
     "findings; 2 fatal CLI, filesystem, JSON parse, or output failure."
 )
 
+MAX_RESOURCE_ENTRIES = 4096
+MAX_RESOURCE_DEPTH = 32
+MAX_TEXT_FILE_BYTES = 1 << 20
+MAX_TOTAL_TEXT_BYTES = 8 << 20
+MAX_MARKDOWN_LINK_CANDIDATES = 4096
+MAX_MARKDOWN_TARGET_CHARACTERS = 1 << 20
+READ_CHUNK_BYTES = 64 << 10
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -127,6 +136,25 @@ class Finding:
     line: int | None
     message: str
     suggestion: str
+
+
+@dataclass
+class _MarkdownLinkCandidate:
+    open_paren: int
+    start: int
+    angle: bool
+    first_space: int | None = None
+    close: int | None = None
+
+
+@dataclass
+class _MarkdownScanBudget:
+    candidates: int = 0
+    target_characters: int = 0
+
+
+class MarkdownScanLimitError(ValueError):
+    """Raised when inline-link extraction exceeds a deterministic budget."""
 
 
 def add_finding(
@@ -288,60 +316,156 @@ def commonmark_path(value: str) -> str:
     return commonmark_unescape(value).split("#", 1)[0]
 
 
-def find_unescaped(text: str, start: int, delimiter: str) -> int | None:
-    """Find a same-line delimiter that is not preceded by an odd slash count."""
+def _append_markdown_target(
+    targets: list[str],
+    line: str,
+    start: int,
+    end: int,
+    budget: _MarkdownScanBudget,
+) -> None:
+    target_length = end - start
+    if budget.target_characters + target_length > MAX_MARKDOWN_TARGET_CHARACTERS:
+        raise MarkdownScanLimitError(
+            "Markdown link destinations exceed the "
+            f"{MAX_MARKDOWN_TARGET_CHARACTERS}-character scan budget"
+        )
+    budget.target_characters += target_length
+    targets.append(line[start:end])
+
+
+def _markdown_link_targets_on_line(
+    line: str, budget: _MarkdownScanBudget
+) -> list[str]:
+    """Preserve the supported inline-link subset in output-sensitive linear time."""
+    length = len(line)
+    candidates: list[_MarkdownLinkCandidate] = []
+
+    # Linear equivalent of the former ``(?<!!)\[[^\]\r\n]+\]\(`` search.
+    pending_open_bracket: int | None = None
+    index = 0
+    while index < length:
+        character = line[index]
+        if character == "[":
+            if pending_open_bracket is None and (
+                index == 0 or line[index - 1] != "!"
+            ):
+                pending_open_bracket = index
+        elif character == "]":
+            if (
+                pending_open_bracket is not None
+                and index > pending_open_bracket + 1
+                and index + 1 < length
+                and line[index + 1] == "("
+            ):
+                budget.candidates += 1
+                if budget.candidates > MAX_MARKDOWN_LINK_CANDIDATES:
+                    raise MarkdownScanLimitError(
+                        "Markdown link candidates exceed the "
+                        f"{MAX_MARKDOWN_LINK_CANDIDATES}-candidate scan budget"
+                    )
+                open_paren = index + 1
+                start = open_paren + 1
+                while start < length and line[start] in " \t":
+                    start += 1
+                candidates.append(
+                    _MarkdownLinkCandidate(
+                        open_paren=open_paren,
+                        start=start,
+                        angle=start < length and line[start] == "<",
+                    )
+                )
+                pending_open_bracket = None
+                index += 1
+            else:
+                pending_open_bracket = None
+        index += 1
+
+    if not candidates:
+        return []
+
+    escaped = bytearray(length)
     preceding_backslashes = 0
-    for index in range(start, len(text)):
-        character = text[index]
-        if character in "\r\n":
-            return None
+    for index, character in enumerate(line):
+        escaped[index] = preceding_backslashes % 2
         if character == "\\":
             preceding_backslashes += 1
+        else:
+            preceding_backslashes = 0
+
+    by_open_paren = {candidate.open_paren: candidate for candidate in candidates}
+    parenthesis_stack: list[int] = []
+    for index, character in enumerate(line):
+        if escaped[index]:
             continue
-        if character == delimiter and preceding_backslashes % 2 == 0:
-            return index
-        preceding_backslashes = 0
-    return None
+        if character == "(":
+            parenthesis_stack.append(index)
+        elif character in " \t":
+            if parenthesis_stack:
+                candidate = by_open_paren.get(parenthesis_stack[-1])
+                if (
+                    candidate is not None
+                    and not candidate.angle
+                    and index >= candidate.start
+                    and candidate.first_space is None
+                ):
+                    candidate.first_space = index
+        elif character == ")" and parenthesis_stack:
+            open_paren = parenthesis_stack.pop()
+            candidate = by_open_paren.get(open_paren)
+            if candidate is not None:
+                candidate.close = index
+
+    next_gt = [-1] * (length + 1)
+    next_close = [-1] * (length + 1)
+    nearest_gt = -1
+    nearest_close = -1
+    for index in range(length - 1, -1, -1):
+        if not escaped[index]:
+            if line[index] == ">":
+                nearest_gt = index
+            if line[index] == ")":
+                nearest_close = index
+        next_gt[index] = nearest_gt
+        next_close[index] = nearest_close
+
+    targets: list[str] = []
+    for candidate in candidates:
+        if candidate.start >= length:
+            continue
+        if candidate.angle:
+            end = next_gt[candidate.start + 1]
+            if end != -1 and next_close[end + 1] != -1:
+                _append_markdown_target(
+                    targets, line, candidate.start, end + 1, budget
+                )
+        elif candidate.first_space is not None:
+            if next_close[candidate.first_space + 1] != -1:
+                _append_markdown_target(
+                    targets,
+                    line,
+                    candidate.start,
+                    candidate.first_space,
+                    budget,
+                )
+        elif candidate.close is not None:
+            _append_markdown_target(
+                targets, line, candidate.start, candidate.close, budget
+            )
+    return targets
 
 
 def markdown_link_targets(text: str) -> list[str]:
-    """Extract inline-link destinations with escapes and balanced parentheses."""
+    """Extract inline-link destinations without repeatedly scanning suffixes."""
     targets: list[str] = []
-    for match in MARKDOWN_LINK_START_RE.finditer(text):
-        start = match.end()
-        while start < len(text) and text[start] in " \t":
-            start += 1
-        if start >= len(text):
-            continue
-        if text[start] == "<":
-            end = find_unescaped(text, start + 1, ">")
-            if end is not None and find_unescaped(text, end + 1, ")") is not None:
-                targets.append(text[start : end + 1])
-            continue
-
-        depth = 0
-        index = start
-        while index < len(text):
-            character = text[index]
-            if character in "\r\n":
-                break
-            if character == "\\" and index + 1 < len(text):
-                if text[index + 1] in "\r\n":
-                    break
-                index += 2
-                continue
-            if character == "(":
-                depth += 1
-            elif character == ")":
-                if depth == 0:
-                    targets.append(text[start:index])
-                    break
-                depth -= 1
-            elif character in " \t" and depth == 0:
-                if find_unescaped(text, index + 1, ")") is not None:
-                    targets.append(text[start:index])
-                break
-            index += 1
+    budget = _MarkdownScanBudget()
+    line_start = 0
+    for index, character in enumerate(text):
+        if character in "\r\n":
+            targets.extend(
+                _markdown_link_targets_on_line(text[line_start:index], budget)
+            )
+            line_start = index + 1
+    targets.extend(_markdown_link_targets_on_line(text[line_start:], budget))
     return targets
 
 
@@ -454,57 +578,467 @@ def windows_filename_issue(parts: tuple[str, ...]) -> str | None:
     return None
 
 
+@dataclass(frozen=True)
+class InventoryIssue:
+    path: Path
+    code: str
+    message: str
+
+
+@dataclass
+class InventoryState:
+    entries_scanned: int = 0
+    complete: bool = True
+    entry_limit_reported: bool = False
+
+
+@dataclass
+class TextReadBudget:
+    bytes_read: int = 0
+
+
+class TextReadError(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def file_type_name(mode: int) -> str:
+    if stat.S_ISFIFO(mode):
+        return "FIFO"
+    if stat.S_ISSOCK(mode):
+        return "socket"
+    if stat.S_ISCHR(mode):
+        return "character device"
+    if stat.S_ISBLK(mode):
+        return "block device"
+    if stat.S_ISDIR(mode):
+        return "directory"
+    if stat.S_ISREG(mode):
+        return "regular file"
+    return "non-regular file"
+
+
+def is_reparse_stat(info: os.stat_result) -> bool:
+    return bool(getattr(info, "st_file_attributes", 0) & WINDOWS_REPARSE_POINT)
+
+
+def stable_file_signature(info: os.stat_result) -> tuple[int, int, int]:
+    """Return mutation-sensitive metadata that ordinary reads do not change."""
+    return (info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
 def iter_files(
     root: Path,
     directory: str,
-    errors: list[tuple[Path, str]] | None = None,
+    issues: list[InventoryIssue] | None = None,
+    state: InventoryState | None = None,
 ) -> list[Path]:
+    """Inventory ordinary resources without following links or special files."""
+    if state is None:
+        state = InventoryState()
+    if not state.complete and state.entry_limit_reported:
+        return []
     base = root / directory
     try:
         info = os.lstat(base)
     except FileNotFoundError:
         return []
     except OSError as exc:
-        if errors is not None:
-            errors.append((base, str(exc)))
+        if issues is not None:
+            issues.append(
+                InventoryIssue(base, "package.resource_unreadable", str(exc))
+            )
+        state.complete = False
         return []
-    if stat.S_ISLNK(info.st_mode) or bool(
-        getattr(info, "st_file_attributes", 0) & WINDOWS_REPARSE_POINT
-    ):
+    if stat.S_ISLNK(info.st_mode) or is_reparse_stat(info):
+        state.complete = False
+        if issues is not None:
+            issues.append(
+                InventoryIssue(
+                    base,
+                    "package.resource_symlink",
+                    "A resource directory is a symbolic link or reparse point and was not inspected.",
+                )
+            )
         return [base]
     if not stat.S_ISDIR(info.st_mode):
+        if issues is not None:
+            issues.append(
+                InventoryIssue(
+                    base,
+                    "package.resource_special_file",
+                    f"Expected a resource directory but found a {file_type_name(info.st_mode)}.",
+                )
+            )
+        state.complete = False
         return []
 
-    def record_walk_error(exc: OSError) -> None:
-        if errors is None:
-            return
-        problem_path = Path(exc.filename) if exc.filename else base
-        errors.append((problem_path, str(exc)))
-
     discovered: list[Path] = []
-    for current_root, directory_names, file_names in os.walk(
-        base, topdown=True, onerror=record_walk_error, followlinks=False
-    ):
-        current = Path(current_root)
-        retained_directories: list[str] = []
-        for name in directory_names:
-            path = current / name
-            if "__pycache__" in path.parts:
-                continue
-            if is_link_like(path):
-                if path.suffix.lower() not in {".pyc", ".pyo"}:
-                    discovered.append(path)
-                continue
-            retained_directories.append(name)
-        directory_names[:] = retained_directories
-        for name in file_names:
-            path = current / name
+    pending: list[tuple[Path, int, os.stat_result]] = [(base, 0, info)]
+    while pending and not state.entry_limit_reported:
+        current, depth, expected_info = pending.pop()
+        try:
+            current_info = os.lstat(current)
+        except OSError as exc:
+            if issues is not None:
+                issues.append(
+                    InventoryIssue(
+                        current,
+                        "package.resource_changed",
+                        f"A queued resource directory changed before inspection: {exc}",
+                    )
+                )
+            state.complete = False
+            continue
+        if (
+            stat.S_ISLNK(current_info.st_mode)
+            or is_reparse_stat(current_info)
+            or not stat.S_ISDIR(current_info.st_mode)
+            or not os.path.samestat(expected_info, current_info)
+            or stable_file_signature(expected_info)
+            != stable_file_signature(current_info)
+        ):
+            if issues is not None:
+                issues.append(
+                    InventoryIssue(
+                        current,
+                        "package.resource_changed",
+                        "A queued resource directory changed before inspection.",
+                    )
+                )
+            state.complete = False
+            continue
+        try:
+            entries = os.scandir(current)
+        except OSError as exc:
+            if issues is not None:
+                issues.append(
+                    InventoryIssue(
+                        Path(exc.filename) if exc.filename else current,
+                        "package.resource_unreadable",
+                        str(exc),
+                    )
+                )
+            state.complete = False
+            continue
+        try:
+            opened_info = os.lstat(current)
+        except OSError as exc:
+            entries.close()
+            if issues is not None:
+                issues.append(
+                    InventoryIssue(
+                        current,
+                        "package.resource_changed",
+                        f"A resource directory changed while it was being opened: {exc}",
+                    )
+                )
+            state.complete = False
+            continue
+        if (
+            stat.S_ISLNK(opened_info.st_mode)
+            or is_reparse_stat(opened_info)
+            or not stat.S_ISDIR(opened_info.st_mode)
+            or not os.path.samestat(current_info, opened_info)
+            or stable_file_signature(current_info)
+            != stable_file_signature(opened_info)
+        ):
+            entries.close()
+            if issues is not None:
+                issues.append(
+                    InventoryIssue(
+                        current,
+                        "package.resource_changed",
+                        "A resource directory changed while it was being opened.",
+                    )
+                )
+            state.complete = False
+            continue
+        discovered_start = len(discovered)
+        pending_start = len(pending)
+        issues_start = len(issues) if issues is not None else 0
+        try:
+            with entries:
+                for entry in entries:
+                    path = Path(entry.path)
+                    if state.entries_scanned >= MAX_RESOURCE_ENTRIES:
+                        state.complete = False
+                        state.entry_limit_reported = True
+                        if issues is not None:
+                            issues.append(
+                                InventoryIssue(
+                                    root,
+                                    "package.resource_entry_limit",
+                                    "Resource inventory stopped after "
+                                    f"{MAX_RESOURCE_ENTRIES} entries.",
+                                )
+                            )
+                        break
+                    state.entries_scanned += 1
+                    try:
+                        entry_info = entry.stat(follow_symlinks=False)
+                    except OSError as exc:
+                        state.complete = False
+                        if issues is not None:
+                            issues.append(
+                                InventoryIssue(
+                                    path,
+                                    "package.resource_unreadable",
+                                    str(exc),
+                                )
+                            )
+                        continue
+
+                    relative_parts = path.relative_to(base).parts
+                    ignored = (
+                        "__pycache__" in relative_parts
+                        or path.suffix.lower() in {".pyc", ".pyo"}
+                    )
+                    if stat.S_ISLNK(entry_info.st_mode) or is_reparse_stat(entry_info):
+                        if not ignored:
+                            state.complete = False
+                            discovered.append(path)
+                            if issues is not None:
+                                issues.append(
+                                    InventoryIssue(
+                                        path,
+                                        "package.resource_symlink",
+                                        "A package resource is a symbolic link or reparse point and was not inspected.",
+                                    )
+                                )
+                        continue
+                    if stat.S_ISDIR(entry_info.st_mode):
+                        if ignored:
+                            continue
+                        child_depth = depth + 1
+                        if child_depth > MAX_RESOURCE_DEPTH:
+                            state.complete = False
+                            if issues is not None:
+                                issues.append(
+                                    InventoryIssue(
+                                        path,
+                                        "package.resource_depth_limit",
+                                        "Resource directory depth exceeds the "
+                                        f"configured limit of {MAX_RESOURCE_DEPTH}.",
+                                    )
+                                )
+                            continue
+                        pending.append((path, child_depth, entry_info))
+                        continue
+                    if stat.S_ISREG(entry_info.st_mode):
+                        if not ignored:
+                            discovered.append(path)
+                        continue
+                    state.complete = False
+                    if issues is not None:
+                        issues.append(
+                            InventoryIssue(
+                                path,
+                                "package.resource_special_file",
+                                f"A {file_type_name(entry_info.st_mode)} resource was not inspected.",
+                            )
+                        )
+        except OSError as exc:
+            state.complete = False
+            if issues is not None:
+                issues.append(
+                    InventoryIssue(
+                        Path(exc.filename) if exc.filename else current,
+                        "package.resource_unreadable",
+                        str(exc),
+                    )
+                )
+        else:
+            try:
+                current_after = os.lstat(current)
+            except OSError as exc:
+                current_after = None
+                changed_message = (
+                    f"A resource directory changed during inspection: {exc}"
+                )
+            else:
+                changed_message = "A resource directory changed during inspection."
             if (
-                "__pycache__" not in path.parts
-                and path.suffix.lower() not in {".pyc", ".pyo"}
+                current_after is None
+                or stat.S_ISLNK(current_after.st_mode)
+                or is_reparse_stat(current_after)
+                or not stat.S_ISDIR(current_after.st_mode)
+                or not os.path.samestat(opened_info, current_after)
+                or stable_file_signature(opened_info)
+                != stable_file_signature(current_after)
             ):
-                discovered.append(path)
+                del discovered[discovered_start:]
+                del pending[pending_start:]
+                if issues is not None:
+                    del issues[issues_start:]
+                    issues.append(
+                        InventoryIssue(
+                            current,
+                            "package.resource_changed",
+                            changed_message,
+                        )
+                    )
+                state.complete = False
     return sorted(discovered)
+
+
+def read_bounded_regular_utf8(
+    root: Path,
+    path: Path,
+    budget: TextReadBudget,
+) -> str:
+    """Read one stable package-local ordinary file within shared byte limits."""
+    lexical_root = Path(os.path.abspath(os.fspath(root)))
+    path = Path(os.path.abspath(os.fspath(path)))
+    try:
+        path.relative_to(lexical_root)
+    except ValueError as exc:
+        raise TextReadError(
+            "package.resource_changed",
+            f'Resource path is outside the package root "{lexical_root}".',
+        ) from exc
+    redirect = first_link_like_component(lexical_root, path)
+    if redirect is not None:
+        raise TextReadError(
+            "package.resource_changed",
+            f'Path redirects through symbolic link or reparse point "{redirect}".',
+        )
+    try:
+        before = os.lstat(path)
+    except OSError as exc:
+        raise TextReadError(
+            "package.resource_unreadable", f"Cannot inspect the resource: {exc}"
+        ) from exc
+    if stat.S_ISLNK(before.st_mode) or is_reparse_stat(before):
+        raise TextReadError(
+            "package.resource_changed",
+            "The resource became a symbolic link or reparse point.",
+        )
+    if not stat.S_ISREG(before.st_mode):
+        raise TextReadError(
+            "package.resource_special_file",
+            f"A {file_type_name(before.st_mode)} resource was not inspected.",
+        )
+    if before.st_size > MAX_TEXT_FILE_BYTES:
+        raise TextReadError(
+            "package.resource_too_large",
+            f"The resource exceeds the {MAX_TEXT_FILE_BYTES}-byte per-file limit.",
+        )
+
+    remaining = MAX_TOTAL_TEXT_BYTES - budget.bytes_read
+    if remaining <= 0 or before.st_size > remaining:
+        raise TextReadError(
+            "package.resource_text_budget",
+            f"The package exceeds the {MAX_TOTAL_TEXT_BYTES}-byte text-read budget.",
+        )
+    maximum = min(MAX_TEXT_FILE_BYTES, remaining)
+    flags = os.O_RDONLY
+    for flag_name in (
+        "O_BINARY",
+        "O_CLOEXEC",
+        "O_NOCTTY",
+        "O_NOFOLLOW",
+        "O_NONBLOCK",
+    ):
+        flags |= getattr(os, flag_name, 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise TextReadError(
+            "package.resource_unreadable", f"Cannot open the resource safely: {exc}"
+        ) from exc
+
+    chunks: list[bytes] = []
+    bytes_read = 0
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            raise TextReadError(
+                "package.resource_special_file",
+                f"A {file_type_name(opened.st_mode)} resource was not inspected.",
+            )
+        if (
+            not os.path.samestat(before, opened)
+            or stable_file_signature(before) != stable_file_signature(opened)
+        ):
+            raise TextReadError(
+                "package.resource_changed",
+                "The resource changed while it was being opened.",
+            )
+        redirect = first_link_like_component(lexical_root, path)
+        try:
+            current = os.lstat(path)
+        except OSError as exc:
+            raise TextReadError(
+                "package.resource_changed",
+                f"The resource changed while it was being opened: {exc}",
+            ) from exc
+        if (
+            redirect is not None
+            or not os.path.samestat(current, opened)
+            or stable_file_signature(current) != stable_file_signature(opened)
+        ):
+            raise TextReadError(
+                "package.resource_changed",
+                "The resource path changed while it was being opened.",
+            )
+
+        while bytes_read <= maximum:
+            request_size = min(READ_CHUNK_BYTES, maximum + 1 - bytes_read)
+            if request_size <= 0:
+                break
+            chunk = os.read(descriptor, request_size)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            bytes_read += len(chunk)
+            budget.bytes_read += len(chunk)
+
+        opened_after = os.fstat(descriptor)
+        redirect = first_link_like_component(lexical_root, path)
+        try:
+            current_after = os.lstat(path)
+        except OSError as exc:
+            raise TextReadError(
+                "package.resource_changed",
+                f"The resource changed while it was being read: {exc}",
+            ) from exc
+        if (
+            redirect is not None
+            or not os.path.samestat(opened, opened_after)
+            or not os.path.samestat(current_after, opened_after)
+            or stable_file_signature(opened_after) != stable_file_signature(opened)
+            or stable_file_signature(current_after)
+            != stable_file_signature(opened_after)
+        ):
+            raise TextReadError(
+                "package.resource_changed",
+                "The resource changed while it was being read.",
+            )
+    except OSError as exc:
+        raise TextReadError(
+            "package.resource_unreadable", f"Cannot read the resource safely: {exc}"
+        ) from exc
+    finally:
+        os.close(descriptor)
+
+    if bytes_read > MAX_TEXT_FILE_BYTES:
+        raise TextReadError(
+            "package.resource_too_large",
+            f"The resource exceeds the {MAX_TEXT_FILE_BYTES}-byte per-file limit.",
+        )
+    if bytes_read > remaining:
+        raise TextReadError(
+            "package.resource_text_budget",
+            f"The package exceeds the {MAX_TOTAL_TEXT_BYTES}-byte text-read budget.",
+        )
+    try:
+        return b"".join(chunks).decode("utf-8")
+    except UnicodeError as exc:
+        raise TextReadError(
+            "package.resource_unreadable", f"The resource is not valid UTF-8: {exc}"
+        ) from exc
 
 
 def resolve_package_data_file(source: Path) -> tuple[Path, Path, str | None]:
@@ -559,14 +1093,48 @@ def script_help_detected(path: Path, text: str) -> bool:
     return False
 
 
+def add_text_read_error(
+    findings: list[Finding],
+    path: Path,
+    error: TextReadError,
+    reported_limits: set[str],
+) -> None:
+    if error.code == "package.resource_text_budget":
+        if error.code in reported_limits:
+            return
+        reported_limits.add(error.code)
+    add_finding(
+        findings,
+        "error",
+        error.code,
+        path,
+        str(error),
+        "Replace it with a stable, ordinary UTF-8 file within the documented limits.",
+    )
+
+
 def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]:
     root = target.resolve()
     findings: list[Finding] = []
+    text_budget = TextReadBudget()
+    reported_limits: set[str] = set()
     facts: dict[str, Any] = {
         "skill_name": None,
         "description_characters": 0,
         "skill_md_lines": 0,
         "resource_files": {},
+        "resource_entries_scanned": 0,
+        "resource_inventory_complete": False,
+        "text_bytes_read": 0,
+        "text_inspection_complete": False,
+        "limits": {
+            "resource_entries": MAX_RESOURCE_ENTRIES,
+            "resource_depth": MAX_RESOURCE_DEPTH,
+            "text_file_bytes": MAX_TEXT_FILE_BYTES,
+            "total_text_bytes": MAX_TOTAL_TEXT_BYTES,
+            "markdown_link_candidates": MAX_MARKDOWN_LINK_CANDIDATES,
+            "markdown_target_characters": MAX_MARKDOWN_TARGET_CHARACTERS,
+        },
     }
 
     if not root.is_dir():
@@ -575,7 +1143,15 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
         )
 
     skill_md = root / "SKILL.md"
-    if is_link_like(skill_md):
+    try:
+        skill_info = os.lstat(skill_md)
+    except FileNotFoundError:
+        skill_info = None
+    except OSError as exc:
+        raise ValueError(f"Cannot inspect {skill_md}: {exc}") from exc
+    if skill_info is not None and (
+        stat.S_ISLNK(skill_info.st_mode) or is_reparse_stat(skill_info)
+    ):
         add_finding(
             findings,
             "error",
@@ -585,7 +1161,7 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             "Replace it with an ordinary file inside the skill package.",
         )
         return finalize("static", root, facts, findings, max_findings), 1
-    if not skill_md.is_file():
+    if skill_info is None:
         add_finding(
             findings,
             "error",
@@ -595,11 +1171,25 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             "Point to the skill directory or add the required SKILL.md.",
         )
         return finalize("static", root, facts, findings, max_findings), 1
-
+    if not stat.S_ISREG(skill_info.st_mode):
+        add_finding(
+            findings,
+            "error",
+            "package.resource_special_file",
+            skill_md,
+            f"The root SKILL.md is a {file_type_name(skill_info.st_mode)} and was not inspected.",
+            "Replace it with an ordinary UTF-8 file inside the skill package.",
+        )
+        facts["resource_inventory_complete"] = False
+        facts["text_inspection_complete"] = False
+        return finalize("static", root, facts, findings, max_findings), 1
     try:
-        text = skill_md.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
-        raise ValueError(f"Cannot read {skill_md}: {exc}") from exc
+        text = read_bounded_regular_utf8(root, skill_md, text_budget)
+    except TextReadError as exc:
+        add_text_read_error(findings, skill_md, exc, reported_limits)
+        facts["text_bytes_read"] = text_budget.bytes_read
+        facts["text_inspection_complete"] = False
+        return finalize("static", root, facts, findings, max_findings), 1
 
     facts["skill_md_lines"] = len(text.splitlines())
     frontmatter, body_start, parse_errors = parse_frontmatter(text)
@@ -733,33 +1323,24 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
         )
 
     all_resource_files: dict[str, list[Path]] = {}
-    inventory_errors: list[tuple[Path, str]] = []
+    inventory_issues: list[InventoryIssue] = []
+    inventory_state = InventoryState()
     for directory in ("references", "scripts", "assets", "evals"):
-        files = iter_files(root, directory, inventory_errors)
+        files = iter_files(root, directory, inventory_issues, inventory_state)
         all_resource_files[directory] = files
         facts["resource_files"][directory] = len(files)
 
-    for problem_path, message in inventory_errors:
+    facts["resource_entries_scanned"] = inventory_state.entries_scanned
+    facts["resource_inventory_complete"] = inventory_state.complete
+    for issue in inventory_issues:
         add_finding(
             findings,
             "error",
-            "package.resource_unreadable",
-            problem_path,
-            f"A package resource directory could not be inventoried: {message}.",
-            "Restore read access and rerun the package-boundary preflight.",
+            issue.code,
+            issue.path,
+            issue.message,
+            "Use ordinary package-local files and keep the package within the documented limits.",
         )
-
-    for files in all_resource_files.values():
-        for path in files:
-            if is_link_like(path):
-                add_finding(
-                    findings,
-                    "warning",
-                    "package.resource_symlink",
-                    path,
-                    "A package resource is a symbolic link or reparse point and was not inspected.",
-                    "Replace it with an ordinary package-local file before relying on it.",
-                )
 
     instruction_files = [skill_md] + [
         path
@@ -767,18 +1348,13 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
         if not is_link_like(path) and path.suffix.lower() in {".md", ".txt"}
     ]
     file_texts: dict[Path, str] = {skill_md: text}
+    text_inspection_complete = True
     for path in instruction_files[1:]:
         try:
-            file_texts[path] = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
-            add_finding(
-                findings,
-                "warning",
-                "reference.unreadable",
-                path,
-                f"The instruction-bearing resource could not be read as UTF-8: {exc}",
-                "Use a readable text format or document why the binary resource is needed.",
-            )
+            file_texts[path] = read_bounded_regular_utf8(root, path, text_budget)
+        except TextReadError as exc:
+            text_inspection_complete = False
+            add_text_read_error(findings, path, exc, reported_limits)
 
     mentioned: set[Path] = set()
     reachable_references: set[Path] = set()
@@ -790,7 +1366,20 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             continue
         visited.add(source)
         source_text = file_texts[source]
-        for raw, required_pointer in extract_paths(source_text).items():
+        try:
+            extracted_paths = extract_paths(source_text)
+        except MarkdownScanLimitError as exc:
+            text_inspection_complete = False
+            add_finding(
+                findings,
+                "error",
+                "pointer.scan_limited",
+                source,
+                f"Pointer inspection stopped: {exc}.",
+                "Reduce pathological inline-link nesting or split the instructions into focused references.",
+            )
+            continue
+        for raw, required_pointer in extracted_paths.items():
             raw_path = raw
             if not raw_path:
                 continue
@@ -872,24 +1461,26 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                 reachable_references.add(resolved)
                 queue.append(resolved)
 
-    for path in all_resource_files["references"]:
-        if is_link_like(path):
-            continue
-        if path not in reachable_references and path not in mentioned:
-            add_finding(
-                findings,
-                "warning",
-                "reference.orphaned",
-                path,
-                "This reference is not reachable from SKILL.md through a Markdown pointer.",
-                "Add a conditioned pointer or remove the unused resource.",
-            )
+    integrity_complete = inventory_state.complete and text_inspection_complete
+    if integrity_complete:
+        for path in all_resource_files["references"]:
+            if is_link_like(path):
+                continue
+            if path not in reachable_references and path not in mentioned:
+                add_finding(
+                    findings,
+                    "warning",
+                    "reference.orphaned",
+                    path,
+                    "This reference is not reachable from SKILL.md through a Markdown pointer.",
+                    "Add a conditioned pointer or remove the unused resource.",
+                )
 
     for path in all_resource_files["scripts"]:
         relative = path.relative_to(root)
         if is_link_like(path):
             continue
-        if path.resolve() not in mentioned:
+        if integrity_complete and path not in mentioned:
             add_finding(
                 findings,
                 "warning",
@@ -901,16 +1492,10 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
         if path.suffix.lower() not in SCRIPT_SUFFIXES:
             continue
         try:
-            script_text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
-            add_finding(
-                findings,
-                "warning",
-                "script.unreadable",
-                path,
-                f"The script could not be read as UTF-8: {exc}.",
-                "Restore read access or use a documented text encoding before review.",
-            )
+            script_text = read_bounded_regular_utf8(root, path, text_budget)
+        except TextReadError as exc:
+            text_inspection_complete = False
+            add_text_read_error(findings, path, exc, reported_limits)
             continue
         if not script_help_detected(path, script_text):
             add_finding(
@@ -937,6 +1522,7 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
     openai_yaml = root / "agents" / "openai.yaml"
     metadata_redirect = first_link_like_component(root, openai_yaml)
     if metadata_redirect is not None:
+        text_inspection_complete = False
         add_finding(
             findings,
             "warning",
@@ -958,35 +1544,72 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             )
         except (OSError, RuntimeError):
             pass
-    elif openai_yaml.is_file() and name:
+    else:
         try:
-            openai_text = openai_yaml.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
-            add_finding(
-                findings,
-                "warning",
-                "metadata.unreadable",
-                openai_yaml,
-                f"Agent metadata could not be read as UTF-8: {exc}.",
-                "Restore read access or use UTF-8 metadata before review.",
-            )
-            openai_text = ""
-        default_prompt_match = re.search(
-            r"^\s*default_prompt:\s*['\"]?(.*?)['\"]?\s*$",
-            openai_text,
-            re.MULTILINE,
-        )
-        if default_prompt_match and f"${name}" not in default_prompt_match.group(1):
+            metadata_info = os.lstat(openai_yaml)
+        except FileNotFoundError:
+            metadata_info = None
+        except NotADirectoryError as exc:
+            metadata_info = None
+            text_inspection_complete = False
             add_finding(
                 findings,
                 "error",
-                "metadata.default_prompt_missing_skill",
+                "package.resource_special_file",
                 openai_yaml,
-                f"interface.default_prompt does not mention ${name}.",
-                "Include the explicit $skill-name token in the example prompt.",
-                line_number(openai_text, "default_prompt:"),
+                f"Agent metadata has a non-directory parent and was not inspected: {exc}.",
+                "Use an ordinary agents directory containing an ordinary UTF-8 openai.yaml file.",
             )
+        except OSError as exc:
+            metadata_info = None
+            text_inspection_complete = False
+            add_finding(
+                findings,
+                "error",
+                "package.resource_unreadable",
+                openai_yaml,
+                f"Agent metadata could not be inspected: {exc}.",
+                "Restore read access and rerun the package-boundary preflight.",
+            )
+        if metadata_info is not None and not stat.S_ISREG(metadata_info.st_mode):
+            text_inspection_complete = False
+            add_finding(
+                findings,
+                "error",
+                "package.resource_special_file",
+                openai_yaml,
+                f"Agent metadata is a {file_type_name(metadata_info.st_mode)} and was not inspected.",
+                "Replace it with an ordinary UTF-8 file inside the skill package.",
+            )
+        elif metadata_info is not None and name:
+            try:
+                openai_text = read_bounded_regular_utf8(
+                    root, openai_yaml, text_budget
+                )
+            except TextReadError as exc:
+                text_inspection_complete = False
+                add_text_read_error(findings, openai_yaml, exc, reported_limits)
+                openai_text = ""
+            default_prompt_match = re.search(
+                r"^\s*default_prompt:\s*['\"]?(.*?)['\"]?\s*$",
+                openai_text,
+                re.MULTILINE,
+            )
+            if default_prompt_match and f"${name}" not in default_prompt_match.group(
+                1
+            ):
+                add_finding(
+                    findings,
+                    "error",
+                    "metadata.default_prompt_missing_skill",
+                    openai_yaml,
+                    f"interface.default_prompt does not mention ${name}.",
+                    "Include the explicit $skill-name token in the example prompt.",
+                    line_number(openai_text, "default_prompt:"),
+                )
 
+    facts["text_bytes_read"] = text_budget.bytes_read
+    facts["text_inspection_complete"] = text_inspection_complete
     result = finalize("static", root, facts, findings, max_findings)
     return result, 1 if result["summary"]["errors"] else 0
 
@@ -1823,6 +2446,340 @@ def render_text(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def aggregate_output_destination(
+    iteration: str, output: str, resolved_iteration: Path
+) -> tuple[Path, Path]:
+    """Map an output below the selected iteration to its fixed resolved root."""
+    selected_root = Path(os.path.abspath(os.fspath(iteration)))
+    resolved_root = Path(os.path.abspath(os.fspath(resolved_iteration)))
+    selected_output = Path(os.path.abspath(os.fspath(output)))
+    relative: Path | None = None
+    for allowed_root in (selected_root, resolved_root):
+        try:
+            relative = selected_output.relative_to(allowed_root)
+            break
+        except ValueError:
+            continue
+    if relative is None:
+        raise ValueError(
+            f'Aggregate output must remain inside iteration "{resolved_root}"; '
+            f'received "{selected_output}".'
+        )
+    destination = resolved_root / relative
+    if destination == resolved_root:
+        raise ValueError("Aggregate output must name a file below the iteration root.")
+    return resolved_root, destination
+
+
+def validate_output_root(
+    root: Path, expected_info: os.stat_result | None
+) -> os.stat_result:
+    try:
+        root_info = os.lstat(root)
+    except OSError as exc:
+        raise ValueError(f'Cannot inspect fixed iteration root "{root}": {exc}') from exc
+    if (
+        stat.S_ISLNK(root_info.st_mode)
+        or is_reparse_stat(root_info)
+        or not stat.S_ISDIR(root_info.st_mode)
+    ):
+        raise ValueError(f'Fixed iteration root is no longer an ordinary directory: "{root}".')
+    if expected_info is not None and not os.path.samestat(expected_info, root_info):
+        raise ValueError(f'Iteration root changed before output publication: "{root}".')
+    return root_info
+
+
+def validate_output_parent(
+    root: Path,
+    destination: Path,
+    expected_root_info: os.stat_result | None,
+) -> os.stat_result:
+    validate_output_root(root, expected_root_info)
+    redirect = first_link_like_component(root, destination.parent)
+    if redirect is not None:
+        raise ValueError(
+            f'Output parent redirects through symbolic link or reparse point "{redirect}".'
+        )
+    try:
+        parent_info = os.lstat(destination.parent)
+    except OSError as exc:
+        raise ValueError(
+            f'Output parent must already exist; received "{destination.parent}": {exc}'
+        ) from exc
+    if not stat.S_ISDIR(parent_info.st_mode) or is_reparse_stat(parent_info):
+        raise ValueError(
+            f'Output parent must be an ordinary directory; received "{destination.parent}".'
+        )
+    return parent_info
+
+
+def validate_output_entry_info(
+    destination: Path, info: os.stat_result | None, *, force: bool
+) -> None:
+    if info is None:
+        return
+    if stat.S_ISLNK(info.st_mode) or is_reparse_stat(info):
+        raise ValueError(
+            f'Output path must not be a symbolic link or reparse point: "{destination}".'
+        )
+    if not force:
+        raise ValueError(
+            f'Output already exists: "{destination}". Use --force to replace it safely.'
+        )
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError(
+            f'--force can replace only an ordinary file; received "{destination}".'
+        )
+
+
+def validate_output_entry(
+    destination: Path, *, force: bool
+) -> os.stat_result | None:
+    try:
+        info = os.lstat(destination)
+    except FileNotFoundError:
+        info = None
+    except OSError as exc:
+        raise ValueError(f'Cannot inspect output path "{destination}": {exc}') from exc
+    validate_output_entry_info(destination, info, force=force)
+    return info
+
+
+def output_dir_fd_supported() -> bool:
+    required = {os.open, os.link, os.rename, os.stat, os.unlink}
+    return (
+        os.name == "posix"
+        and hasattr(os, "O_DIRECTORY")
+        and required.issubset(os.supports_dir_fd)
+        and os.stat in os.supports_follow_symlinks
+        and os.link in os.supports_follow_symlinks
+    )
+
+
+def write_output_descriptor(descriptor: int, rendered: str) -> None:
+    descriptor_open = True
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+            descriptor_open = False
+            stream.write(rendered)
+            stream.flush()
+            os.fsync(stream.fileno())
+    finally:
+        if descriptor_open:
+            os.close(descriptor)
+
+
+def write_aggregate_output_with_dir_fd(
+    root: Path,
+    destination: Path,
+    rendered: str,
+    *,
+    force: bool,
+    expected_root_info: os.stat_result | None,
+) -> None:
+    parent_before = validate_output_parent(
+        root, destination, expected_root_info
+    )
+    parent_flags = os.O_RDONLY | os.O_DIRECTORY
+    for flag_name in ("O_CLOEXEC", "O_NOCTTY", "O_NOFOLLOW"):
+        parent_flags |= getattr(os, flag_name, 0)
+    parent_descriptor = os.open(destination.parent, parent_flags)
+    temporary_name: str | None = None
+    backup_name: str | None = None
+    published = False
+    try:
+        opened_parent = os.fstat(parent_descriptor)
+        parent_after = validate_output_parent(
+            root, destination, expected_root_info
+        )
+        if (
+            not os.path.samestat(parent_before, opened_parent)
+            or not os.path.samestat(parent_after, opened_parent)
+        ):
+            raise ValueError("Output parent changed while it was being opened.")
+
+        try:
+            destination_info = os.stat(
+                destination.name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            destination_info = None
+        validate_output_entry_info(destination, destination_info, force=force)
+
+        temporary_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        for flag_name in ("O_CLOEXEC", "O_NOCTTY", "O_NOFOLLOW"):
+            temporary_flags |= getattr(os, flag_name, 0)
+        for _ in range(128):
+            candidate_name = f".skill-review-{secrets.token_hex(8)}.tmp"
+            try:
+                temporary_descriptor = os.open(
+                    candidate_name,
+                    temporary_flags,
+                    0o600,
+                    dir_fd=parent_descriptor,
+                )
+            except FileExistsError:
+                continue
+            temporary_name = candidate_name
+            break
+        else:
+            raise OSError("Could not allocate a unique temporary output file.")
+
+        write_output_descriptor(temporary_descriptor, rendered)
+        parent_current = validate_output_parent(
+            root, destination, expected_root_info
+        )
+        if not os.path.samestat(parent_current, opened_parent):
+            raise ValueError("Output parent changed before publication.")
+        try:
+            destination_info = os.stat(
+                destination.name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            destination_info = None
+        validate_output_entry_info(destination, destination_info, force=force)
+
+        if force and destination_info is not None:
+            for _ in range(128):
+                candidate_name = f".skill-review-backup-{secrets.token_hex(8)}.tmp"
+                try:
+                    os.link(
+                        destination.name,
+                        candidate_name,
+                        src_dir_fd=parent_descriptor,
+                        dst_dir_fd=parent_descriptor,
+                        follow_symlinks=False,
+                    )
+                except FileExistsError:
+                    continue
+                backup_name = candidate_name
+                break
+            else:
+                raise OSError("Could not allocate a unique output backup entry.")
+
+        try:
+            if force:
+                os.replace(
+                    temporary_name,
+                    destination.name,
+                    src_dir_fd=parent_descriptor,
+                    dst_dir_fd=parent_descriptor,
+                )
+                published = True
+            else:
+                os.link(
+                    temporary_name,
+                    destination.name,
+                    src_dir_fd=parent_descriptor,
+                    dst_dir_fd=parent_descriptor,
+                    follow_symlinks=False,
+                )
+                published = True
+                os.unlink(temporary_name, dir_fd=parent_descriptor)
+            temporary_name = None
+            parent_final = validate_output_parent(
+                root, destination, expected_root_info
+            )
+            if not os.path.samestat(parent_final, opened_parent):
+                raise ValueError("Output parent changed during publication.")
+        except BaseException:
+            if published:
+                if backup_name is not None:
+                    os.replace(
+                        backup_name,
+                        destination.name,
+                        src_dir_fd=parent_descriptor,
+                        dst_dir_fd=parent_descriptor,
+                    )
+                    backup_name = None
+                else:
+                    os.unlink(destination.name, dir_fd=parent_descriptor)
+                published = False
+            raise
+        if backup_name is not None:
+            os.unlink(backup_name, dir_fd=parent_descriptor)
+            backup_name = None
+    finally:
+        try:
+            if temporary_name is not None:
+                try:
+                    os.unlink(temporary_name, dir_fd=parent_descriptor)
+                except FileNotFoundError:
+                    pass
+            if backup_name is not None:
+                try:
+                    os.unlink(backup_name, dir_fd=parent_descriptor)
+                except FileNotFoundError:
+                    pass
+        finally:
+            os.close(parent_descriptor)
+
+
+def write_aggregate_output_with_paths(
+    root: Path,
+    destination: Path,
+    rendered: str,
+    *,
+    force: bool,
+    expected_root_info: os.stat_result | None,
+) -> None:
+    validate_output_parent(root, destination, expected_root_info)
+    validate_output_entry(destination, force=force)
+
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".skill-review-", suffix=".tmp", dir=destination.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        write_output_descriptor(descriptor, rendered)
+        validate_output_parent(root, destination, expected_root_info)
+        validate_output_entry(destination, force=force)
+        if force:
+            os.replace(temporary, destination)
+        else:
+            os.link(temporary, destination, follow_symlinks=False)
+            os.unlink(temporary)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def write_aggregate_output(
+    iteration: str,
+    output: str,
+    rendered: str,
+    *,
+    force: bool,
+    resolved_iteration: Path,
+    expected_root_info: os.stat_result | None,
+) -> None:
+    root, destination = aggregate_output_destination(
+        iteration, output, resolved_iteration
+    )
+    if output_dir_fd_supported():
+        write_aggregate_output_with_dir_fd(
+            root,
+            destination,
+            rendered,
+            force=force,
+            expected_root_info=expected_root_info,
+        )
+    else:
+        write_aggregate_output_with_paths(
+            root,
+            destination,
+            rendered,
+            force=force,
+            expected_root_info=expected_root_info,
+        )
+
+
 def write_result(result: dict[str, Any], args: argparse.Namespace) -> None:
     if args.format == "text":
         rendered = render_text(result) + "\n"
@@ -1838,12 +2795,20 @@ def write_result(result: dict[str, Any], args: argparse.Namespace) -> None:
         )
     output = getattr(args, "output", None)
     if output and output != "-":
-        destination = Path(output).resolve()
-        if not destination.parent.is_dir():
-            raise ValueError(
-                f'Output parent must already exist; received "{destination.parent}".'
-            )
-        destination.write_text(rendered, encoding="utf-8")
+        iteration = getattr(args, "iteration", None)
+        if iteration is None:
+            raise ValueError("File output is supported only for aggregate results.")
+        resolved_iteration = Path(
+            getattr(args, "_resolved_iteration", result["subject"])
+        )
+        write_aggregate_output(
+            iteration,
+            output,
+            rendered,
+            force=bool(getattr(args, "force", False)),
+            resolved_iteration=resolved_iteration,
+            expected_root_info=getattr(args, "_iteration_root_info", None),
+        )
     sys.stdout.write(rendered)
 
 
@@ -1875,9 +2840,15 @@ def add_output_options(
             "--output",
             metavar="FILE",
             help=(
-                "Also write the rendered result to FILE; findings remain subject to "
-                "--max-findings. Use - for stdout only."
+                "Also write the rendered result atomically to FILE inside the "
+                "iteration; existing entries require --force and findings remain "
+                "subject to --max-findings. Use - for stdout only."
             ),
+        )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Safely replace an existing ordinary output file; links are rejected.",
         )
 
 
@@ -1947,8 +2918,18 @@ def main() -> int:
                 Path(args.trigger_queries_json), args.max_findings
             )
         else:
+            resolved_iteration = Path(args.iteration).resolve(strict=True)
+            iteration_root_info = os.lstat(resolved_iteration)
+            if not stat.S_ISDIR(iteration_root_info.st_mode) or is_reparse_stat(
+                iteration_root_info
+            ):
+                raise ValueError(
+                    "Resolved iteration root must be an ordinary directory."
+                )
+            args._resolved_iteration = resolved_iteration
+            args._iteration_root_info = iteration_root_info
             result, status = aggregate(
-                Path(args.iteration),
+                resolved_iteration,
                 args.candidate,
                 args.baseline,
                 args.max_findings,

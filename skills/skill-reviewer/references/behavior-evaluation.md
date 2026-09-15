@@ -123,6 +123,13 @@ and standard deviation for assertion pass rate, time, and tokens. Standard
 deviation is `null` for one run. It reports incomplete or malformed runs rather
 than silently excluding them. It also rejects symbolic links, junctions, and
 other reparse points below the iteration root instead of reading through them.
+Aggregate output must stay inside that same root. The first write refuses to
+clobber an existing entry; use `--force` only to atomically replace an existing
+ordinary file. Output links, redirecting parent paths, and special files are
+always rejected. On platforms without directory-relative file operations, do
+not mutate the iteration concurrently with publication; those races can only
+be checked on a best-effort basis. Use `--output -` when no report file should
+be created.
 
 Interpret quality and cost separately. Inspect:
 
