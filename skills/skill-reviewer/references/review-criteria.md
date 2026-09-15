@@ -1,8 +1,9 @@
 # Static review criteria
 
 Use these criteria for a comprehensive audit or when reviewing a skill's body,
-scope, supporting resources, or scripts. Apply only criteria relevant to the
-target; this is not a mandatory feature checklist.
+scope, supporting resources, or scripts. For a comprehensive audit, consider
+every section. Report material findings and gaps, not the internal checklist.
+A criterion is not a mandatory product feature.
 
 ## Evidence and added value
 

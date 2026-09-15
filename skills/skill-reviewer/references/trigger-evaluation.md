@@ -7,7 +7,7 @@ false-positive or missed invocations are reported.
 
 The description is the always-loaded routing pointer. It should:
 
-- use imperative language such as `Use this skill when ...`;
+- front-load the user intent with an action phrase;
 - describe user intent, not internal implementation;
 - cover implicit phrasings of the same intent without expanding the skill's
   actual scope;
@@ -71,30 +71,31 @@ observable without changing the test semantics.
 
 ## Optimize without overfitting
 
-1. Evaluate the current description on both fixed splits.
-2. Diagnose training failures. Generalize the missing intent for false
-   negatives; sharpen the adjacent-task boundary for false positives.
-3. Revise concepts, not literal words copied from failed queries. Keep the
-   description under the character limit.
-4. Re-evaluate both splits, but continue to hide validation examples and
-   results from the revision step.
-5. Select the version with the best validation performance; it may be an earlier
-   iteration. About five rounds is usually enough before reassessing labels and
-   query difficulty.
-6. Confirm the selected description on 5-10 new positive and near-miss queries
-   that played no role in optimization.
+1. Before revising, freeze the query set, runs per query, trigger threshold,
+   acceptable false-positive and false-negative rates, client, model, detection
+   method, harness and installation setup, and iteration limit. Keep validation
+   queries outside the revising agent's context through an independent harness
+   or evaluator. If no real context boundary is available, label the set
+   `unblinded` rather than claiming holdout evidence.
+2. Evaluate the current description on the training split. Diagnose those
+   failures, generalize the missing intent for false negatives, and sharpen the
+   adjacent-task boundary for false positives.
+3. Revise concepts, not literal query wording. Run every candidate on the
+   training split with the frozen protocol, diagnose its failures, and save it.
+   Stop when the training bar passes or at the fixed iteration limit; about five
+   candidates is a useful default.
+4. After candidates are frozen, have the independent evaluator run one
+   validation campaign for each candidate using the frozen per-query run count
+   and threshold. Select a candidate that meets both frozen error-rate bars
+   without another revision round; an earlier candidate may win. If none meets
+   them, report the unmet bar rather than claiming the description was
+   optimized.
+5. Confirm a candidate that passes both bars on 5-10 new positive and near-miss
+   queries that influenced neither revision nor selection. If confirmation
+   misses the bars, report it and start a new campaign before further revision.
 
 Report false-positive and false-negative rates separately. A single accuracy
 number can hide a description that catches everything or nothing.
-
-## Common boundaries for a reviewer skill
-
-For a skill-reviewing skill, useful negative near misses include ordinary code
-or PR review, creating a brand-new skill, installing a skill, debugging one
-helper in isolation, general prompt tuning, and specified skill edits with no
-review objective. They become positives only when the user's intent is to
-assess an existing Agent Skill as a unit or explicitly remediate findings in
-the same review request.
 
 ## Source
 

@@ -34,12 +34,27 @@ python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py validate-evals 
 Observe the first outputs before adding detailed assertions. This keeps the
 initial test from encoding guesses about how a good solution must look.
 
+## Set the success bar
+
+Turn the pilot outputs into assertions that are objective, observable, and
+robust to wording. Use scripts for mechanical facts such as JSON validity or
+file dimensions; use an LLM judge for semantic claims.
+
+Before the first paired run, write an immutable `evaluation-plan.json` at the
+workspace root. Record a campaign identifier; configuration labels, the fixed
+baseline identity, and the candidate's starting identity; the execution
+environment; case IDs, prompts, inputs, and output contracts; each case's
+assertion texts; acceptable quality, time, and token deltas; and a maximum
+iteration count. Use three iterations when the user supplies no other limit.
+Changing an evaluation input, environment, assertion, or bar starts a new
+campaign. The candidate revision is the measured variable, so record its exact
+identity in each iteration instead of rewriting the plan.
+
 ## Bind evidence to the reviewed package
 
-Record the resolved package root, declared name, reviewed file set, and source
-revision or snapshot identifier with each evaluation iteration. Retain a stable
-package digest when the harness provides one; do not claim or synthesize one
-when it does not. If package identity changes or cannot be established, report
+Attach the configuration identity, exact applicable package identity, frozen
+campaign identity, and execution-environment identity to each configuration's
+retained provenance. If any required identity cannot be established, report
 that limitation and do not present the run as regression evidence for another
 version.
 
@@ -56,15 +71,18 @@ Use this layout without overwriting prior iterations:
 
 ```text
 <skill>-workspace/
+├── evaluation-plan.json
 └── iteration-N/
     ├── eval-<case>/
     │   ├── with_skill/
     │   │   ├── outputs/
     │   │   ├── grading.json
+    │   │   ├── provenance.json
     │   │   └── timing.json
     │   └── old_skill/              # or without_skill
     │       ├── outputs/
     │       ├── grading.json
+    │       ├── provenance.json
     │       └── timing.json
     ├── feedback.json
     └── benchmark.json
@@ -81,13 +99,10 @@ record timing data as:
 If isolation, observability, authorization, or budget prevents a fair run,
 report that limitation instead of presenting a simulated benchmark.
 
-## Add and grade assertions
+## Grade results
 
-After inspecting initial outputs, add assertions that are objective,
-observable, and robust to wording. Use scripts for mechanical facts such as
-JSON validity or file dimensions; use an LLM judge for semantic claims.
-
-Every result needs concrete evidence:
+Grade both sides against the same frozen assertions. Every result needs
+concrete evidence:
 
 ```json
 {
@@ -107,8 +122,10 @@ doubt. Revisit assertions that both configurations always pass, both always
 fail, or that cannot be checked from the output.
 
 Use blind comparison for holistic qualities such as organization and usability:
-hide which output is the candidate. Human-review every case and save specific,
-actionable feedback; an empty feedback string means no issue was found.
+hide which output is the candidate. When a human reviewer is available, save
+their specific, actionable feedback or an explicit no-issue result. Otherwise
+state explicitly that human review was not performed; LLM judging is not human
+assurance.
 
 ## Aggregate and interpret
 
@@ -118,18 +135,23 @@ After every run has both `grading.json` and `timing.json`, run:
 python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py aggregate /path/to/iteration-N --candidate with_skill --baseline old_skill --pretty --output /path/to/iteration-N/benchmark.json
 ```
 
+Before aggregation, compare the discovered `eval-*` directories, assertion
+texts, and run provenance with `evaluation-plan.json`. The aggregator checks
+each discovered pair and requires matching assertion texts within that pair;
+it does not prove full-suite coverage, cross-iteration consistency, or package
+identity. Report those checks separately.
+
 The script gives each run equal weight and reports the number of runs, mean,
 and standard deviation for assertion pass rate, time, and tokens. Standard
 deviation is `null` for one run. It reports incomplete or malformed runs rather
-than silently excluding them. It also rejects symbolic links, junctions, and
-other reparse points below the iteration root instead of reading through them.
-Aggregate output must stay inside that same root. The first write refuses to
-clobber an existing entry; use `--force` only to atomically replace an existing
-ordinary file. Output links, redirecting parent paths, and special files are
-always rejected. On platforms without directory-relative file operations, do
-not mutate the iteration concurrently with publication; those races can only
-be checked on a best-effort basis. Use `--output -` when no report file should
-be created.
+than silently excluding them. It rejects symbolic links, junctions, and other
+reparse points on the run and output paths it reads or writes. Aggregate output
+must stay inside that same root. The first write refuses to clobber an existing
+entry; use `--force` only to atomically replace an existing ordinary file.
+Output links, redirecting parent paths, and special files are always rejected.
+On platforms without directory-relative file operations, do not mutate the
+iteration concurrently with publication; those races can only be checked on a
+best-effort basis. Use `--output -` when no report file should be created.
 
 Interpret quality and cost separately. Inspect:
 
@@ -138,17 +160,16 @@ Interpret quality and cost separately. Inspect:
 - high variance, which can indicate flaky tests or ambiguous instructions;
 - time and token outliers, using transcripts to find the cause.
 
-Do not collapse quality, time, and tokens into one opaque score.
+Report quality, time, and tokens separately.
 
 ## Iterate
 
-Combine failed assertions, human feedback, and transcripts to identify root
-causes. Generalize the correction, keep the skill lean, explain why where
-judgment is needed, and bundle only repeated deterministic work.
-
-Apply the focused revision, then rerun the entire suite in `iteration-N+1`, not
-only the failures. Stop when results meet the user's bar, human feedback is
-consistently empty, or further iterations show no meaningful improvement.
+When the same review request authorizes remediation, use failed assertions,
+available feedback, and transcripts to revise the supported root cause, then
+rerun the entire suite in `iteration-N+1`, not only the failures. Otherwise,
+report the supported revision without editing. Succeed when the frozen criteria
+pass. At the iteration limit, stop and report every unmet criterion rather than
+weakening the bar.
 
 ## Source
 

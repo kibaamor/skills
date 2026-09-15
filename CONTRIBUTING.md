@@ -69,8 +69,11 @@ repository's deterministic static review:
 
 ```bash
 uvx --from skills-ref agentskills validate skills/SKILL-NAME
-python3 -B skills/skill-reviewer/scripts/review_skill.py static skills/SKILL-NAME --format text
+python3 -B skills/skill-reviewer/scripts/review_skill.py static skills/SKILL-NAME --pretty
 ```
+
+Keep the static result as JSON so its inventory, text-inspection, and finding
+completeness facts remain visible.
 
 If the skill has `evals/evals.json`, validate its structure:
 
@@ -79,9 +82,19 @@ python3 -B skills/skill-reviewer/scripts/review_skill.py validate-evals \
   skills/SKILL-NAME/evals/evals.json --format text
 ```
 
-This validates the evaluation definition; it does not execute behavioral
-evaluations. Run applicable behavior checks in your evaluation environment.
-When comparing revisions, use the same inputs and assertions for both.
+This validates only the evaluation definition. When comparing revisions, run
+both sides with the same inputs and assertions in your evaluation environment.
+
+If the skill has `evals/trigger_queries.json`, validate its labels and split:
+
+```bash
+python3 -B skills/skill-reviewer/scripts/review_skill.py validate-triggers \
+  skills/SKILL-NAME/evals/trigger_queries.json --format text
+```
+
+For trigger changes, run every fixed query through the client and record actual
+skill loading. For behavior changes, run the full paired eval set and report any
+case that was not executed.
 
 If you change the bundled `skill-reviewer` script or its tests, run:
 

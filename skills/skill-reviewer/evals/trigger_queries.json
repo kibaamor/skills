@@ -15,6 +15,11 @@
     "split": "train"
   },
   {
+    "query": "The reusable agent workflow under .codex loads every provider guide for tiny requests. Audit its routing and context use.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
     "query": "Review whether the scripts bundled in ./skills/customer-import are actually justified and safe for an agent shell.",
     "should_trigger": true,
     "split": "train"
@@ -50,7 +55,7 @@
     "split": "train"
   },
   {
-    "query": "Debug scripts/publish.py; it throws KeyError when RELEASE_TAG is missing.",
+    "query": "Debug ./skills/release-note/scripts/publish.py; it throws KeyError when RELEASE_TAG is missing.",
     "should_trigger": false,
     "split": "train"
   },

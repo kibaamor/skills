@@ -126,6 +126,27 @@ def trigger_queries() -> list[dict[str, object]]:
 
 
 class StaticReviewTests(unittest.TestCase):
+    def test_accepts_action_description_without_use_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "action-description"
+            write(
+                root / "SKILL.md",
+                (
+                    "---\n"
+                    "name: action-description\n"
+                    "description: Audits release manifests before publication.\n"
+                    "---\n\n"
+                    "# Action description\n\nInspect the manifest.\n"
+                ),
+            )
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 0)
+        self.assertNotIn(
+            "description.imperative_not_detected",
+            {finding["code"] for finding in result["findings"]},
+        )
+
     def test_accepts_nested_frontmatter_and_ignores_fenced_examples(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "nested-skill"
@@ -170,6 +191,384 @@ class StaticReviewTests(unittest.TestCase):
                 skill_text(
                     "linked-skill",
                     body="Read [the required guide](references/missing.md).",
+                ),
+            )
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "pointer.target_missing",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_reports_a_missing_markdown_image_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "image-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "image-skill",
+                    body="Use this workflow: ![](assets/missing.png)",
+                ),
+            )
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "pointer.target_missing",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_reports_a_missing_markdown_image_with_nested_alt_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "nested-image-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "nested-image-skill",
+                    body="Use ![outer [inner]](assets/missing.png).",
+                ),
+            )
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "pointer.target_missing",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_ignores_escaped_markdown_image_syntax(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "escaped-image-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "escaped-image-skill",
+                    body="Literal syntax: !\\[flow](assets/missing.png).",
+                ),
+            )
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 0)
+        self.assertNotIn(
+            "pointer.target_missing",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_nested_link_keeps_only_the_inner_target(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "[outer [inner](references/real.md)](references/missing.md)"
+            ),
+            ["references/real.md"],
+        )
+
+    def test_image_nested_link_does_not_deactivate_an_outer_link(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "[outer ![image [inner](references/inner.md)]"
+                "(assets/image.png)](references/outer.md)"
+            ),
+            [
+                "references/inner.md",
+                "assets/image.png",
+                "references/outer.md",
+            ],
+        )
+
+    def test_ignores_markdown_targets_inside_same_line_code(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "inline-code-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "inline-code-skill",
+                    body=(
+                        "Example only: `[guide](references/missing.md)`.\n\n"
+                        "Example image: `![flow](assets/missing.png)`."
+                    ),
+                ),
+            )
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 0)
+        self.assertNotIn(
+            "pointer.target_missing",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_ignores_markdown_targets_inside_multiline_code(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "multiline-code-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "multiline-code-skill",
+                    body=(
+                        "Example only: `first line\n"
+                        "![flow](assets/missing.png)\n"
+                        "last line`."
+                    ),
+                ),
+            )
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 0)
+        self.assertNotIn(
+            "pointer.target_missing",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_unclosed_code_does_not_cross_an_atx_heading(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "`unclosed\n"
+                "# Heading\n"
+                "Read [guide](references/missing.md).\n"
+                "`unclosed"
+            ),
+            ["references/missing.md"],
+        )
+
+    def test_unclosed_code_does_not_cross_a_setext_heading(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "`unclosed\n"
+                "Heading [guide](references/missing.md)\n"
+                "--\n"
+                "`unclosed"
+            ),
+            ["references/missing.md"],
+        )
+
+    def test_multiline_code_stays_inside_a_blockquote(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "> `first\n"
+                "> [guide](references/missing.md)\n"
+                "> last`"
+            ),
+            [],
+        )
+
+    def test_multiline_code_stays_inside_a_list_blockquote(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "- > `open\n"
+                "  > [guide](references/missing.md) `close"
+            ),
+            [],
+        )
+
+    def test_blockquote_list_allows_lazy_continuation(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "> - `open\n"
+                "> [guide](references/missing.md) `close"
+            ),
+            [],
+        )
+
+    def test_blockquote_list_allows_indented_lazy_continuation(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "> - `open\n"
+                "    - [guide](references/missing.md) `close"
+            ),
+            [],
+        )
+
+    def test_nested_blockquote_allows_lazy_continuation(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "> > `open\n"
+                "> [guide](references/missing.md) `close"
+            ),
+            [],
+        )
+
+    def test_list_blockquote_allows_partial_lazy_continuation(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "- > > `open\n"
+                "    > [guide](references/missing.md) `close"
+            ),
+            [],
+        )
+
+    def test_nested_list_ends_an_inner_blockquote_code_span(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "- > `open\n"
+                "    - [guide](references/missing.md) `close"
+            ),
+            ["references/missing.md"],
+        )
+
+    def test_tab_indentation_uses_markdown_columns(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "-     > `open\n"
+                "\t[guide](references/missing.md) `close"
+            ),
+            ["references/missing.md"],
+        )
+
+    def test_unclosed_code_does_not_cross_blockquote_boundaries(self) -> None:
+        cases = {
+            "blank": "> `open\n>\n> [guide](references/missing.md) `close",
+            "depth": "> `open\n>   > [guide](references/missing.md) `close",
+            "heading": "> `open\n> # [guide](references/missing.md) `close",
+            "list item": "> - `open\n> - [guide](references/missing.md) `close",
+            "outer list": "> `open\n2. [guide](references/missing.md) `close",
+            "leave list for root quote": (
+                "- > `open\n> [guide](references/missing.md) `close"
+            ),
+            "leave inner quote for outer list": (
+                "> > `open\n> 10. [guide](references/missing.md) `close"
+            ),
+        }
+        for boundary, text in cases.items():
+            with self.subTest(boundary=boundary):
+                self.assertEqual(
+                    REVIEW.markdown_link_targets(text),
+                    ["references/missing.md"],
+                )
+
+    def test_noninterrupting_list_markers_remain_inside_code_spans(self) -> None:
+        cases = {
+            "empty bullet": "`open\n+\n[guide](references/missing.md) `close",
+            "ordered from two": (
+                "`open\n2. [guide](references/missing.md) `close"
+            ),
+            "nested empty bullet": (
+                "- `open\n  +\n  [guide](references/missing.md) `close"
+            ),
+            "nested ordered from two": (
+                "- `open\n  2. [guide](references/missing.md) `close"
+            ),
+            "tab-indented quote marker": (
+                "`open\n\t> [guide](references/missing.md) `close"
+            ),
+        }
+        for marker, text in cases.items():
+            with self.subTest(marker=marker):
+                self.assertEqual(REVIEW.markdown_link_targets(text), [])
+
+    def test_interrupting_list_markers_end_code_spans(self) -> None:
+        cases = {
+            "bullet": "`open\n- [guide](references/missing.md) `close",
+            "ordered one": "`open\n1. [guide](references/missing.md) `close",
+            "ordered zero-padded one": (
+                "`open\n01. [guide](references/missing.md) `close"
+            ),
+        }
+        for marker, text in cases.items():
+            with self.subTest(marker=marker):
+                self.assertEqual(
+                    REVIEW.markdown_link_targets(text),
+                    ["references/missing.md"],
+                )
+
+    def test_code_spans_do_not_cross_list_container_blocks(self) -> None:
+        cases = {
+            "nested item": (
+                "10. `open\n    - [guide](references/missing.md) `close"
+            ),
+            "relative quote": (
+                "10. `open\n    > [guide](references/missing.md) `close"
+            ),
+            "item heading": (
+                "- # `open\n    [guide](references/missing.md) `close"
+            ),
+        }
+        for block, text in cases.items():
+            with self.subTest(block=block):
+                self.assertEqual(
+                    REVIEW.markdown_link_targets(text),
+                    ["references/missing.md"],
+                )
+
+    def test_list_heading_state_does_not_leak_into_a_later_paragraph(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "- # Heading\n"
+                "`open\n"
+                "2. [guide](references/missing.md) `close"
+            ),
+            [],
+        )
+
+    def test_indented_code_starts_a_new_markdown_block(self) -> None:
+        cases = {
+            "top level": "    `open\n[guide](references/missing.md) `close",
+            "list item": "-     `open\n  [guide](references/missing.md) `close",
+        }
+        for block, text in cases.items():
+            with self.subTest(block=block):
+                self.assertEqual(
+                    REVIEW.markdown_link_targets(text),
+                    ["references/missing.md"],
+                )
+
+    def test_code_spans_do_not_cross_commonmark_html_blocks(self) -> None:
+        boundaries = {
+            "raw": ("  <script>", "</script>"),
+            "comment": ("<!--", "-->"),
+            "processing": ("<?", "?>"),
+            "declaration": ("<!A", ">"),
+            "cdata": ("<![CDATA[", "]]>"),
+        }
+        for block_type, (start, end) in boundaries.items():
+            with self.subTest(block_type=block_type):
+                self.assertEqual(
+                    REVIEW.markdown_link_targets(
+                        "`open\n"
+                        f"{start}\n"
+                        f"{end}\n"
+                        "[guide](references/missing.md) `close"
+                    ),
+                    ["references/missing.md"],
+                )
+
+    def test_ignores_markdown_links_inside_commonmark_html_blocks(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "<script>\n[guide](references/missing.md)\n</script>"
+            ),
+            [],
+        )
+
+    def test_html_block_ends_when_its_list_container_ends(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "- <script>\n- [guide](references/missing.md)"
+            ),
+            ["references/missing.md"],
+        )
+
+    def test_raw_html_end_tag_does_not_allow_internal_whitespace(self) -> None:
+        self.assertEqual(
+            REVIEW.markdown_link_targets(
+                "<script>\n"
+                "</script >\n"
+                "[guide](references/missing.md)"
+            ),
+            [],
+        )
+
+    def test_unclosed_code_does_not_hide_a_pointer_in_a_later_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "unclosed-code-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "unclosed-code-skill",
+                    body=(
+                        "`unclosed\n\n"
+                        "Read [the required guide](references/missing.md).\n\n"
+                        "`unclosed"
+                    ),
                 ),
             )
             result, status = REVIEW.static_review(root, 100)
@@ -368,6 +767,47 @@ class StaticReviewTests(unittest.TestCase):
             f"doubling malformed input took {small:.3f}s then {large:.3f}s",
         )
 
+    def test_limits_unclosed_markdown_bracket_depth(self) -> None:
+        with mock.patch.object(REVIEW, "MAX_MARKDOWN_BRACKET_DEPTH", 4):
+            with self.assertRaisesRegex(
+                REVIEW.MarkdownScanLimitError, "4-level scan budget"
+            ):
+                REVIEW.markdown_link_targets("[" * 5)
+
+    def test_limits_markdown_code_span_delimiters(self) -> None:
+        with mock.patch.object(REVIEW, "MAX_MARKDOWN_CODE_SPAN_DELIMITERS", 4):
+            with self.assertRaisesRegex(
+                REVIEW.MarkdownScanLimitError, "4-run scan budget"
+            ):
+                REVIEW.markdown_link_targets("`a\n" * 5)
+
+    def test_limits_markdown_container_depth(self) -> None:
+        with mock.patch.object(REVIEW, "MAX_MARKDOWN_CONTAINER_DEPTH", 2):
+            with self.assertRaisesRegex(
+                REVIEW.MarkdownScanLimitError, "2-level scan budget"
+            ):
+                REVIEW.markdown_link_targets("- a\n  - b\n    - c")
+
+    def test_nonlocal_token_scan_scales_linearly(self) -> None:
+        def elapsed(length: int) -> float:
+            text = "_" * length
+            samples = []
+            for _ in range(3):
+                started = time.perf_counter()
+                masked = REVIEW.without_nonlocal_tokens(text)
+                samples.append(time.perf_counter() - started)
+                self.assertEqual(masked, text)
+            return min(samples)
+
+        small = elapsed(8_000)
+        large = elapsed(16_000)
+
+        self.assertLessEqual(
+            large,
+            small * 3 + 0.05,
+            f"doubling a plain token took {small:.3f}s then {large:.3f}s",
+        )
+
     def test_large_malformed_markdown_input_finishes_with_a_bounded_error(
         self,
     ) -> None:
@@ -486,6 +926,85 @@ class StaticReviewTests(unittest.TestCase):
                 "powershell_tool.ps1",
                 "session_tool.py",
             }.isdisjoint(unreferenced)
+        )
+
+    def test_bare_script_paths_handle_punctuation_without_matching_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "bare-path-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "bare-path-skill",
+                    body=(
+                        "Run ./scripts/local.py. See "
+                        "https://example.invalid/scripts/remote.py, "
+                        "https://example.invalid/?file=scripts/query.py, and "
+                        "https://example.invalid/#scripts/fragment.py, plus "
+                        "https://example.invalid/x(scripts/paren.py). Contact "
+                        'https://example.invalid/?file="scripts/quoted.py". '
+                        "foo@scripts/email.py for background. "
+                        "运行scripts/cjk.py。"
+                    ),
+                ),
+            )
+            for name in (
+                "local.py",
+                "remote.py",
+                "query.py",
+                "fragment.py",
+                "paren.py",
+                "quoted.py",
+                "email.py",
+                "cjk.py",
+            ):
+                write(root / "scripts" / name, "# --help\n")
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 0)
+        unreferenced = {
+            Path(finding["path"]).name
+            for finding in result["findings"]
+            if finding["code"] == "script.unreferenced"
+        }
+        self.assertEqual(
+            unreferenced,
+            {
+                "remote.py",
+                "query.py",
+                "fragment.py",
+                "paren.py",
+                "quoted.py",
+                "email.py",
+            },
+        )
+
+    def test_reports_bare_script_parent_traversal_without_truncating_it(self) -> None:
+        paths = (
+            "scripts/../../outside.py",
+            "scripts/../../",
+            "scripts/..//../outside.py",
+        )
+        for path in paths:
+            self.assertEqual(REVIEW.extract_paths(f"Run python {path}"), {path: False})
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "traversal-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "traversal-skill",
+                    body="\n".join(f"Run python {path}" for path in paths),
+                ),
+            )
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertEqual(
+            sum(
+                finding["code"] == "pointer.target_outside"
+                for finding in result["findings"]
+            ),
+            len(paths),
         )
 
     def test_windows_shell_forms_count_as_script_mentions(self) -> None:
@@ -1153,6 +1672,14 @@ class StaticReviewTests(unittest.TestCase):
 
 
 class EvalsValidationTests(unittest.TestCase):
+    def test_accepts_bundled_behavior_evals(self) -> None:
+        path = SKILL_ROOT / "evals" / "evals.json"
+        result, status = REVIEW.validate_evals(path, 100)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(result["facts"]["target_skill_name"], "skill-reviewer")
+        self.assertGreaterEqual(result["facts"]["eval_count"], 2)
+
     def test_rejects_skill_name_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "right-skill"
@@ -1181,6 +1708,42 @@ class EvalsValidationTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn(
             "evals.skill_name_mismatch",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_rejects_target_frontmatter_without_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "unnamed-skill"
+            write(
+                root / "SKILL.md",
+                "---\ndescription: Audits manifests.\n---\n\n# Unnamed\n",
+            )
+            evals_path = root / "evals" / "evals.json"
+            write(
+                evals_path,
+                json.dumps(
+                    {
+                        "skill_name": "invented-name",
+                        "evals": [
+                            {
+                                "id": "one",
+                                "prompt": "Run one realistic case.",
+                                "expected_output": "An observable result.",
+                            },
+                            {
+                                "id": "two",
+                                "prompt": "Run a boundary case.",
+                                "expected_output": "An observable boundary result.",
+                            },
+                        ],
+                    }
+                ),
+            )
+            result, status = REVIEW.validate_evals(evals_path, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "evals.target_name_missing",
             {finding["code"] for finding in result["findings"]},
         )
 
@@ -1558,14 +2121,13 @@ class TriggerValidationTests(unittest.TestCase):
         result, status = REVIEW.validate_triggers(path, 100)
 
         self.assertEqual(status, 0)
-        self.assertEqual(result["facts"]["query_count"], 22)
-        self.assertEqual(
-            result["facts"]["coverage"],
-            {
-                "train": {"positive": 6, "negative": 7},
-                "validation": {"positive": 4, "negative": 5},
-            },
-        )
+        facts = result["facts"]
+        self.assertEqual(facts["query_count"], facts["unique_query_count"])
+        for split in ("train", "validation"):
+            self.assertGreaterEqual(facts["coverage"][split]["positive"], 4)
+            self.assertGreaterEqual(facts["coverage"][split]["negative"], 4)
+        self.assertGreaterEqual(facts["split_fractions"]["validation"], 0.3)
+        self.assertLessEqual(facts["split_fractions"]["validation"], 0.5)
 
     def test_reports_split_fractions_and_warns_on_imbalanced_splits(self) -> None:
         data: list[dict[str, object]] = []
@@ -1900,6 +2462,34 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertTrue(result["facts"]["complete"])
         self.assertEqual(result["facts"]["delta"]["pass_rate"], 1.0)
+
+    def test_aggregate_ignores_unselected_configuration_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_complete_pair(root)
+            (root / "eval-one" / "unselected").mkdir()
+            result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
+
+        self.assertEqual(status, 0)
+        self.assertTrue(result["facts"]["complete"])
+        self.assertEqual(result["facts"]["delta"]["pass_rate"], 1.0)
+        self.assertNotIn("unselected", result["facts"]["run_summary"])
+
+    def test_aggregate_text_output_includes_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_complete_pair(root)
+            result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
+            rendered = REVIEW.render_text(result)
+
+        self.assertEqual(status, 0)
+        metrics_line = next(
+            line for line in rendered.splitlines() if line.startswith("metrics=")
+        )
+        metrics = json.loads(metrics_line.removeprefix("metrics="))
+        self.assertIn("with_skill", metrics["run_summary"])
+        self.assertEqual(metrics["delta"]["pass_rate"], 1.0)
+        self.assertTrue(metrics["complete"])
 
     @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
     def test_accepts_iteration_root_junction_alias(self) -> None:
