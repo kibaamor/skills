@@ -60,6 +60,11 @@
     "split": "train"
   },
   {
+    "query": "Change the display_name of our existing release-note skill to 'Weekly Release Notes' and leave everything else unchanged.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
     "query": "Our skill never fires when teammates say 'prepare the board packet' instead of 'make slides'. Review the trigger description and its near-miss boundary.",
     "should_trigger": true,
     "split": "validation"
@@ -96,6 +101,11 @@
   },
   {
     "query": "Validate config/pipeline.yaml and repair any schema errors.",
+    "should_trigger": false,
+    "split": "validation"
+  },
+  {
+    "query": "Rewrite the existing meeting-notes skill to use the terminology already specified in docs/style-guide.md.",
     "should_trigger": false,
     "split": "validation"
   }

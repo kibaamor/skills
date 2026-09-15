@@ -1,24 +1,27 @@
 ---
 name: skill-reviewer
-description: Use this skill to review or improve an existing Agent Skill when the user asks to audit its package, trigger boundary, instructions, resources, scripts, safety, or observed behavior. Also use for false or missed triggers. Do not use for ordinary code review, new-skill creation, installation, or non-skill prompt tuning.
+description: Use this skill to review an existing Agent Skill's package, trigger boundary, instructions, resources, scripts, safety, observed behavior, or false and missed triggers. When the same request explicitly asks to fix supported review findings, also apply focused remediation. Do not use for ordinary code review, new-skill creation, installation, non-skill prompt tuning, or skill editing without a review objective.
 ---
 
 # Skill Reviewer
 
-Review an existing skill against observable evidence, then make the smallest
-generalized improvement the user authorized.
+Review an existing skill against observable evidence. When the same request
+explicitly authorizes remediation, fix only supported findings and validate the
+result.
 
 ## Choose the mode
 
-- Treat `review`, `audit`, and `evaluate` as read-only unless the user also asks
-  for changes.
-- Treat `improve`, `fix`, `update`, and `refactor` as authorization to edit the
-  target skill within the user's stated scope.
+- Treat `review`, `audit`, and `evaluate` on their own as read-only. Do not infer
+  permission to edit from the findings.
+- Treat an explicit request to fix review findings as authorization to edit only
+  when a review objective is part of the same request.
+- A request to draft, rewrite, or apply specified updates without a review
+  objective is skill authoring, not this review workflow.
 - If several candidate skills exist and the target cannot be inferred, ask for
   the target path before continuing.
 
 Preserve the target skill's product choices, invocation policy, and external
-action boundaries unless the requested improvement specifically concerns one
+action boundaries unless the authorized remediation specifically concerns one
 of them.
 
 ## Inspect the target
@@ -123,7 +126,10 @@ imply coverage in another. Advance only the dimension backed by retained
 evidence tied to the same reviewed package identity. `publish_candidate` does
 not by itself claim that runtime behavior was tested.
 
-## Improve when authorized
+## Remediate findings when authorized
+
+Enter this mode only after forming findings and only when the same request
+explicitly authorizes fixing them.
 
 1. If old/new behavior will be compared, snapshot the original skill into a
    new, isolated evaluation workspace before editing. Never overwrite an

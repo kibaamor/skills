@@ -16,15 +16,16 @@
       ]
     },
     {
-      "id": "improve-agent-script",
-      "prompt": "Improve the existing Agent Skill in evals/files/interactive-script-skill and save the revised copy under the run output directory. Keep its domain purpose, but make the script interface safe for a non-interactive agent and validate the result.",
-      "expected_output": "A focused copy of the skill whose script uses explicit non-interactive inputs, has useful --help and structured output, plus validation evidence; the immutable source fixture remains unchanged.",
+      "id": "remediate-agent-script",
+      "prompt": "Audit the existing Agent Skill in evals/files/interactive-script-skill. If the evidence confirms material script-interface findings, fix them in a revised copy under the run output directory and validate the result. Keep the skill's domain purpose unchanged.",
+      "expected_output": "An evidence-backed review followed by a focused revised copy whose script uses explicit non-interactive inputs, has useful --help and structured output, plus validation evidence; the immutable source fixture remains unchanged.",
       "files": [
         "evals/files/interactive-script-skill/SKILL.md",
         "evals/files/interactive-script-skill/scripts/publish.py"
       ],
       "assertions": [
-        "The source fixture remains unchanged and the improved skill is written only to the run output directory",
+        "Material script changes are tied to review findings established before editing",
+        "The source fixture remains unchanged and the revised skill is written only to the run output directory",
         "The revised script does not prompt interactively and documents its arguments with --help",
         "Machine-readable data is sent to stdout and diagnostics are separated",
         "The revised skill passes structural validation and the script is tested on a safe fixture"

@@ -1,4 +1,4 @@
 interface:
   display_name: "Skill Reviewer"
-  short_description: "Review and improve existing Agent Skills"
-  default_prompt: "Use $skill-reviewer to audit and improve this Agent Skill."
+  short_description: "Audit Agent Skills; remediate findings on request"
+  default_prompt: "Use $skill-reviewer to audit this Agent Skill and report evidence-backed findings without editing it."

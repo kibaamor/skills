@@ -49,7 +49,7 @@ Every run starts with a clean context and a unique output directory. Give both
 sides the identical prompt, inputs, and output contract.
 
 - For a new skill, compare `with_skill` with `without_skill`.
-- For an improvement, snapshot the untouched target first and compare
+- For authorized remediation, snapshot the untouched target first and compare
   `with_skill` with `old_skill`.
 
 Use this layout without overwriting prior iterations:

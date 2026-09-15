@@ -91,8 +91,10 @@ number can hide a description that catches everything or nothing.
 
 For a skill-reviewing skill, useful negative near misses include ordinary code
 or PR review, creating a brand-new skill, installing a skill, debugging one
-helper in isolation, and general prompt tuning. They become positives only when
-the user's intent is to assess or improve an existing Agent Skill as a unit.
+helper in isolation, general prompt tuning, and specified skill edits with no
+review objective. They become positives only when the user's intent is to
+assess an existing Agent Skill as a unit or explicitly remediate findings in
+the same review request.
 
 ## Source
 

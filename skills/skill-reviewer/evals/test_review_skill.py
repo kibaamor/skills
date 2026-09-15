@@ -1558,12 +1558,12 @@ class TriggerValidationTests(unittest.TestCase):
         result, status = REVIEW.validate_triggers(path, 100)
 
         self.assertEqual(status, 0)
-        self.assertEqual(result["facts"]["query_count"], 20)
+        self.assertEqual(result["facts"]["query_count"], 22)
         self.assertEqual(
             result["facts"]["coverage"],
             {
-                "train": {"positive": 6, "negative": 6},
-                "validation": {"positive": 4, "negative": 4},
+                "train": {"positive": 6, "negative": 7},
+                "validation": {"positive": 4, "negative": 5},
             },
         )
 
