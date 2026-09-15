@@ -716,6 +716,42 @@ class StaticReviewTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "package.resource_changed")
         close_descriptor.assert_called_once()
 
+    def test_windows_stable_signature_ignores_inconsistent_ctime(self) -> None:
+        class StatInfo:
+            st_size = 100
+            st_mtime_ns = 200
+
+            def __init__(self, ctime_ns: int) -> None:
+                self.st_ctime_ns = ctime_ns
+
+        with mock.patch.object(REVIEW.os, "name", "nt"):
+            lstat_signature = REVIEW.stable_file_signature(StatInfo(300))
+            fstat_signature = REVIEW.stable_file_signature(StatInfo(200))
+
+        self.assertEqual(lstat_signature, fstat_signature)
+
+    @unittest.skipUnless(
+        os.name == "nt", "cached directory metadata is Windows-only"
+    )
+    def test_windows_nested_directory_inventory_is_stable(self) -> None:
+        for index in range(50):
+            with (
+                self.subTest(index=index),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary) / f"nested-skill-{index}"
+                write(root / "SKILL.md", skill_text(f"nested-skill-{index}"))
+                write(root / "references" / "nested" / "guide.md", "# Guide\n")
+
+                result, status = REVIEW.static_review(root, 100)
+
+            self.assertEqual(status, 0)
+            self.assertTrue(result["facts"]["resource_inventory_complete"])
+            self.assertNotIn(
+                "package.resource_changed",
+                {finding["code"] for finding in result["findings"]},
+            )
+
     @unittest.skipUnless(
         os.name == "posix" and hasattr(os, "mkfifo"),
         "FIFO resources require POSIX",
@@ -806,17 +842,21 @@ class StaticReviewTests(unittest.TestCase):
                 "text-size-budget-skill",
                 body="Read [the guide](references/oversized.md).",
             )
-            per_file_limit = len(skill_contents.encode("utf-8"))
             write(root / "SKILL.md", skill_contents)
+            per_file_limit = (root / "SKILL.md").stat().st_size
             write(oversized, "x" * (per_file_limit + 1))
-            real_read_text = Path.read_text
+            real_open = REVIEW.os.open
 
-            def guarded_read_text(
-                path: Path, *args: object, **kwargs: object
-            ) -> str:
-                if path == oversized:
+            def guarded_open(
+                path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+                flags: int,
+                mode: int = 0o777,
+                *,
+                dir_fd: int | None = None,
+            ) -> int:
+                if Path(path) == oversized:
                     self.fail("oversized instruction resource was read")
-                return real_read_text(path, *args, **kwargs)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
 
             with (
                 mock.patch.object(
@@ -831,15 +871,20 @@ class StaticReviewTests(unittest.TestCase):
                     per_file_limit * 3,
                     create=True,
                 ),
-                mock.patch.object(Path, "read_text", guarded_read_text),
+                mock.patch.object(REVIEW.os, "open", guarded_open),
             ):
                 result, status = REVIEW.static_review(root, 100)
 
         self.assertEqual(status, 1)
-        self.assertIn(
-            "package.resource_too_large",
-            {finding["code"] for finding in result["findings"]},
+        self.assertEqual(
+            [
+                finding["path"]
+                for finding in result["findings"]
+                if finding["code"] == "package.resource_too_large"
+            ],
+            [str(oversized)],
         )
+        self.assertEqual(result["facts"]["text_bytes_read"], per_file_limit)
 
     def test_total_text_budget_stops_reading_later_resources(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -853,15 +898,15 @@ class StaticReviewTests(unittest.TestCase):
                     "[second](references/second.md)."
                 ),
             )
-            skill_bytes = len(skill_contents.encode("utf-8"))
             write(root / "SKILL.md", skill_contents)
             write(first, "123456")
             write(second, "abcdef")
+            skill_bytes = (root / "SKILL.md").stat().st_size
             with (
                 mock.patch.object(
                     REVIEW,
                     "MAX_TEXT_FILE_BYTES",
-                    skill_bytes + 1,
+                    skill_bytes + 10,
                     create=True,
                 ),
                 mock.patch.object(

@@ -623,8 +623,10 @@ def is_reparse_stat(info: os.stat_result) -> bool:
     return bool(getattr(info, "st_file_attributes", 0) & WINDOWS_REPARSE_POINT)
 
 
-def stable_file_signature(info: os.stat_result) -> tuple[int, int, int]:
+def stable_file_signature(info: os.stat_result) -> tuple[int, ...]:
     """Return mutation-sensitive metadata that ordinary reads do not change."""
+    if os.name == "nt":
+        return (info.st_size, info.st_mtime_ns)
     return (info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
@@ -675,9 +677,9 @@ def iter_files(
         return []
 
     discovered: list[Path] = []
-    pending: list[tuple[Path, int, os.stat_result]] = [(base, 0, info)]
+    pending: list[tuple[Path, int]] = [(base, 0)]
     while pending and not state.entry_limit_reported:
-        current, depth, expected_info = pending.pop()
+        current, depth = pending.pop()
         try:
             current_info = os.lstat(current)
         except OSError as exc:
@@ -695,9 +697,6 @@ def iter_files(
             stat.S_ISLNK(current_info.st_mode)
             or is_reparse_stat(current_info)
             or not stat.S_ISDIR(current_info.st_mode)
-            or not os.path.samestat(expected_info, current_info)
-            or stable_file_signature(expected_info)
-            != stable_file_signature(current_info)
         ):
             if issues is not None:
                 issues.append(
@@ -824,7 +823,7 @@ def iter_files(
                                     )
                                 )
                             continue
-                        pending.append((path, child_depth, entry_info))
+                        pending.append((path, child_depth))
                         continue
                     if stat.S_ISREG(entry_info.st_mode):
                         if not ignored:

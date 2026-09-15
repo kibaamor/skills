@@ -48,6 +48,8 @@ only ordinary files, rejects FIFOs and other special files, and reports an
 error when its documented entry, depth, per-file, aggregate-text, or Markdown
 pointer limits prevent a complete inspection. Check the returned completeness
 facts before relying on orphaned-resource or script-reference conclusions.
+Run it against a stable package snapshot; concurrent target changes during a
+review are outside the preflight's guarantees.
 
 After the boundary preflight:
 
