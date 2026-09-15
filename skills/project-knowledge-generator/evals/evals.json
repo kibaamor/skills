@@ -2,77 +2,87 @@
   "skill_name": "project-knowledge-generator",
   "evals": [
     {
-      "id": "create-basic-knowledge-set",
-      "prompt": "Create repository knowledge docs for the fixture repo in evals/files/create-basic. Keep the output compact and evidence-backed.",
-      "expected_output": "A minimal knowledge set that creates only documents whose value tests pass, uses source and manifest evidence for current-state claims, and reports unknowns instead of guessing.",
+      "id": "create-required-core-and-functionality-view",
+      "prompt": "Create a durable project knowledge layer for coding agents in the fixture repository at evals/files/create-core. Use the repository evidence to map what the project enables and how it works. Keep the result compact.",
+      "expected_output": "A new docs/project-knowledge knowledge layer with README.md, CONTEXT.md, and ARCHITECTURE.md. README.md links directly to both curated pages, CONTEXT.md contains an evidence-backed project functionality view spanning HTTP, scheduled work, and event consumption, and ARCHITECTURE.md maps each registered flow without changing product files.",
       "files": [
-        "evals/files/create-basic/package.json",
-        "evals/files/create-basic/src/index.ts",
-        "evals/files/create-basic/src/orders.ts",
-        "evals/files/create-basic/test/orders.test.ts"
+        "evals/files/create-core/PRODUCT.md",
+        "evals/files/create-core/package.json",
+        "evals/files/create-core/src/app.js",
+        "evals/files/create-core/src/events.js",
+        "evals/files/create-core/src/jobs.js",
+        "evals/files/create-core/test/app.test.js"
       ],
       "assertions": [
-        "Created documents satisfy the document-contract value tests instead of creating placeholders",
-        "CONTEXT.md is not created when candidate terms are safely recoverable from obvious source and test names",
-        "Runnable commands are traced to package.json scripts before publication",
-        "Domain and source-navigation facts cite behavior-bearing source or focused tests",
-        "The final report includes mode, changed files, decisive evidence, unknowns, and checks when applicable"
+        "docs/project-knowledge/README.md, CONTEXT.md, and ARCHITECTURE.md are created with exact case-sensitive names",
+        "The knowledge README links directly to CONTEXT.md and ARCHITECTURE.md",
+        "CONTEXT.md presents a project-level functionality view that covers the registered POST /orders request, hourly expiration job, and payment.captured consumer, including their actors or system triggers, observable outcomes, state effects, implementation, focused tests, and evidenced failure behavior or an explicit verification gap where relevant",
+        "ARCHITECTURE.md traces the HTTP route, scheduled-job registry, and event-consumer registry to their effective handlers and distinguishes returned results from internal state changes",
+        "CONTEXT.md and ARCHITECTURE.md use valid source-linked metadata",
+        "Every listed product fixture file remains byte-for-byte unchanged",
+        "No empty placeholder page or directory is created"
       ]
     },
     {
-      "id": "refresh-stale-paths-preserve-guidance",
-      "prompt": "Refresh the existing knowledge docs in evals/files/refresh-stale after source paths changed. Preserve supported human-authored guidance and correct stale current-state claims.",
-      "expected_output": "A refresh that limits changes to affected stale facts, keeps supported local guidance, corrects stale paths and commands from current source evidence, and reports the baseline or lack of reliable baseline.",
+      "id": "maintain-smallest-owner-preserving-patch",
+      "prompt": "Refresh the existing project knowledge in evals/files/maintain-minimal after the export row limit changed in source. Keep the result evidence-backed and scoped to that change.",
+      "expected_output": "Only the owning export topic page changes from the stale 500-row limit to the evidenced 1000-row limit. The human-maintained column-order note and the root README, CONTEXT.md, and ARCHITECTURE.md remain byte-for-byte unchanged, and the exact limit is not copied into other pages.",
       "files": [
-        "evals/files/refresh-stale/AGENTS.md",
-        "evals/files/refresh-stale/CODE-MAP.md",
-        "evals/files/refresh-stale/package.json",
-        "evals/files/refresh-stale/src/handlers/checkout.ts",
-        "evals/files/refresh-stale/test/checkout.test.ts"
+        "evals/files/maintain-minimal/package.json",
+        "evals/files/maintain-minimal/src/app.js",
+        "evals/files/maintain-minimal/test/export.test.js",
+        "evals/files/maintain-minimal/docs/project-knowledge/README.md",
+        "evals/files/maintain-minimal/docs/project-knowledge/CONTEXT.md",
+        "evals/files/maintain-minimal/docs/project-knowledge/ARCHITECTURE.md",
+        "evals/files/maintain-minimal/docs/project-knowledge/features/exports.md"
       ],
       "assertions": [
-        "Supported human-authored guidance remains intact",
-        "Stale paths are corrected or removed only after checking current repository evidence",
-        "The diff avoids unrelated wording, ordering, or formatting churn",
-        "The report identifies the refresh baseline used or states that no reliable baseline existed"
+        "Among repository files, only docs/project-knowledge/features/exports.md is modified",
+        "The export owner page changes the stale maximum from 500 rows to the source-backed 1000 rows",
+        "The sentence beginning Human-maintained note remains byte-for-byte unchanged",
+        "The exact row-limit fact remains owned by features/exports.md and is not duplicated into README.md, CONTEXT.md, or ARCHITECTURE.md",
+        "The completion report identifies the evidence and confirms the unchanged knowledge files"
       ]
     },
     {
-      "id": "code-map-only-isolation",
-      "prompt": "Perform a CODE-MAP-only refresh for evals/files/code-map-only so navigation points match the current source tree. Leave all other knowledge documents unchanged.",
-      "expected_output": "Only CODE-MAP.md changes; AGENTS.md and ARCHITECTURE.md remain byte-for-byte unchanged while stale navigation entries are updated from source evidence.",
+      "id": "audit-layered-dispatch-reachability-read-only",
+      "prompt": "Audit the existing project knowledge in evals/files/audit-layered-dispatch against current repository evidence. This is report-only: do not edit any file. Trace each claimed socket command through every dispatch stage and distinguish supported behavior from unreachable or no-op behavior.",
+      "expected_output": "A read-only audit report that confirms sync is supported, reports archive as unreachable despite its handler, and reports preview as a reachable no-op that does not produce the documented preview. Each finding names the listener, allowlist, command map, handler, test evidence, consequence, and focused repair.",
       "files": [
-        "evals/files/code-map-only/AGENTS.md",
-        "evals/files/code-map-only/ARCHITECTURE.md",
-        "evals/files/code-map-only/CODE-MAP.md",
-        "evals/files/code-map-only/package.json",
-        "evals/files/code-map-only/src/api/http.ts",
-        "evals/files/code-map-only/src/workers/sync.ts",
-        "evals/files/code-map-only/test/sync.test.ts"
+        "evals/files/audit-layered-dispatch/package.json",
+        "evals/files/audit-layered-dispatch/src/listener.js",
+        "evals/files/audit-layered-dispatch/src/dispatcher.js",
+        "evals/files/audit-layered-dispatch/src/handlers.js",
+        "evals/files/audit-layered-dispatch/test/dispatch.test.js",
+        "evals/files/audit-layered-dispatch/docs/project-knowledge/README.md",
+        "evals/files/audit-layered-dispatch/docs/project-knowledge/CONTEXT.md",
+        "evals/files/audit-layered-dispatch/docs/project-knowledge/ARCHITECTURE.md"
       ],
       "assertions": [
-        "No knowledge document except CODE-MAP.md is modified",
-        "Every retained CODE-MAP.md link resolves with exact path case",
-        "Generated or special-handling areas identify both edit source and visible output when present",
-        "The report explicitly confirms CODE-MAP-only isolation was checked"
+        "No fixture file is modified",
+        "The report does not treat the existence of archiveWorkspace as proof of support and explains that archive is absent from both the external allowlist and command map",
+        "The report traces preview through the listener and command map to previewWorkspace, then identifies that the handler has no effective action or documented result",
+        "The report distinguishes the fully reachable and effective sync command from the two contradicted capability claims",
+        "Every finding includes repository evidence, consequence for coding agents, and a focused proposed repair without applying it"
       ]
     },
     {
-      "id": "contradicted-intent-labelled",
-      "prompt": "Refresh architecture knowledge for evals/files/conflicted-intent. Existing docs describe a target event stream, but current source implements synchronous HTTP calls.",
-      "expected_output": "Current behavior is documented from source evidence, contradicted target architecture remains only as labelled unresolved intent, and the conflict is reported as a stale or unresolved claim.",
+      "id": "repeat-maintenance-unchanged-evidence",
+      "prompt": "Refresh the existing project knowledge in evals/files/repeat-unchanged. Repository evidence has not changed since the knowledge was reviewed. Verify the content and report the result.",
+      "expected_output": "No repository content changes. The completion report states that the current knowledge remains supported, records the checks performed, and does not add dates, freshness labels, or commit metadata solely because maintenance was requested.",
       "files": [
-        "evals/files/conflicted-intent/ARCHITECTURE.md",
-        "evals/files/conflicted-intent/package.json",
-        "evals/files/conflicted-intent/src/billing.ts",
-        "evals/files/conflicted-intent/src/http-client.ts",
-        "evals/files/conflicted-intent/test/billing.test.ts"
+        "evals/files/repeat-unchanged/package.json",
+        "evals/files/repeat-unchanged/src/health.js",
+        "evals/files/repeat-unchanged/test/health.test.js",
+        "evals/files/repeat-unchanged/docs/project-knowledge/README.md",
+        "evals/files/repeat-unchanged/docs/project-knowledge/CONTEXT.md",
+        "evals/files/repeat-unchanged/docs/project-knowledge/ARCHITECTURE.md"
       ],
       "assertions": [
-        "Current-state architecture claims prefer behavior-bearing source over prose",
-        "Contradicted human-authored intent is preserved only when labelled as unresolved intent",
-        "The report names the implementation conflict and what evidence would resolve it",
-        "No equal-authority conflict is resolved by guessing"
+        "Every fixture file remains byte-for-byte unchanged",
+        "No timestamp, freshness label, verified_commit value, or cosmetic reformatting is added",
+        "The report confirms that README.md still links the two required curated pages and that their claims match source and focused tests",
+        "The report lists deterministic and semantic checks and explicitly states that no knowledge content change was needed"
       ]
     }
   ]

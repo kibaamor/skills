@@ -1,61 +1,45 @@
 ---
 name: project-knowledge-generator
-description: "Use this skill when the user asks to create, regenerate, refresh, or sync repository-wide knowledge docs for coding agents, including operating guidance, domain language, architecture, source navigation, or CODE-MAP-only updates. Do not use for explain-only repo walkthroughs or localized edits to one existing document."
+description: Use this skill when the requested deliverable is a durable, repository-local knowledge base for coding agents, including creating it, maintaining it after source changes, auditing it against repository evidence, or repairing confirmed knowledge drift. Do not use it for chat-only repository explanations, standalone README/API/architecture documentation outside that knowledge base, source indexes or RAG stores, generic documentation reviews, product-code work unless the knowledge base is also requested, or migration of an older knowledge-base layout.
 ---
 
 # Project Knowledge Generator
 
-Create a compact, evidence-backed knowledge system that helps agents find where to work, what to preserve, which source is authoritative, and how to validate a change. Treat `AGENTS.md` as the entry point, not the encyclopedia.
+Build a compact navigation and constraint layer that helps a coding agent understand what the project does, locate the capability and implementation responsible for a behavior, assess change impact, and verify work. Preserve the project's documentation language and supported guidance unless the user requests otherwise.
 
-## Rules
+## Route the request
 
-- Honor the user's scope, language, format, preservation, and named-document requirements. A requirement is compatible with a document when it is within the user's scope and fits that document's contract. Apply compatible requirements to every affected document.
-- Preserve code, commands, paths, identifiers, product names, and canonical domain terms unless the user explicitly requests translation.
-- Treat existing knowledge as human-authored unless explicit provenance proves otherwise: generated frontmatter or a banner naming a generator, repository configuration or scripts declaring the output path, or a committed provenance file. Preserve supported guidance and rationale. A current-state claim describes what the repository does now; intent describes a goal, plan, rationale, or ownership claim not established by current implementation. Correct contradicted current-state claims; retain contradicted intent only as labelled unresolved intent.
-- Give each durable fact one owner document. Link to that owner or to repository source instead of copying facts that are cheap to inspect. When an affected durable fact is duplicated across selected documents, choose the single most appropriate owner according to the ownership rules, replace the affected copies with links to it, and note the consolidation in the report. In Refresh mode, do not consolidate unrelated duplicates outside the requested or changed evidence.
+- **Create:** Read [references/content-model.md](references/content-model.md). Bootstrap a knowledge base when the target knowledge root is absent.
+- **Maintain:** Read [references/maintenance.md](references/maintenance.md). Maintain only a knowledge base whose root already contains `README.md`, `CONTEXT.md`, and `ARCHITECTURE.md` with the required direct links; read the content model too when adding a new knowledge area.
+- **Audit:** Read [references/validation.md](references/validation.md). An audit is read-only unless the user also asks to repair findings. For repairs, also read the maintenance guide.
+- **Mixed:** Audit the existing knowledge first, then follow the matching Create or Maintain route for confirmed gaps.
 
-## Workflow
+## Boundaries
 
-1. **Scope and mode.** Identify the repository root, extract the user's checkable requirements, and inventory existing root and nested knowledge documents before editing.
-   - Inventory is complete only after searching the selected scope for root and nested `AGENTS.md`, `CLAUDE.md`, `CONTEXT*.md`, `ARCHITECTURE.md`, `CODE-MAP.md`, ADR directories, and repository-local agent, rule, or instruction docs. Classify each candidate as selected, linked owner, unrelated, or stale before drafting.
-   - Use **Create** when the knowledge set is absent or the user requests full regeneration.
-   - Use **Refresh** when knowledge documents exist; limit discovery and edits to facts affected by the request or structural changes. A full-regeneration request takes precedence over existing documents.
-   - Apply the sufficiency gate before drafting: continue when the repository has at least one manifest, entry point, build or executable script, or behavior-bearing source file; otherwise report insufficient evidence and stop.
-   - Handle conflicts after the sufficiency gate: ask one focused question only when an unresolved conflict requires a user choice before any compatible output can be produced. Otherwise proceed, update evidenced non-conflicting facts, and report the conflict as a specific unknown or unresolved intent.
+- Resolve the repository, monorepo, or package scope before working. Honor a user-specified knowledge location; otherwise preserve an existing location or use `docs/project-knowledge/` as the fallback.
+- By default, change only the knowledge base and the smallest applicable agent-entry link needed to make it discoverable. Do not change product source, dependencies, runtime configuration, or external indexes unless the user asks.
+- Do not replace or weaken existing `AGENTS.md` instructions. When creating a new agent-facing knowledge base, append only a concise pointer to the applicable existing agent entrypoint unless the user excludes that file; if no entrypoint can be changed, report the unlinked discovery path.
+- Preserve unrelated and uncommitted work. Inspect changes before editing and keep maintenance patches limited to affected knowledge.
+- Use only the current knowledge contract. Do not detect knowledge-base versions, interpret older layouts, migrate or upgrade them, or add compatibility shims. If an existing target does not satisfy the Maintain precondition, report that it is outside this skill's scope and leave it unchanged.
+- Do not read or reproduce secrets, local environment values, real user data, dependency trees, generated output, or vendored code merely to increase coverage.
+- Do not publish to a vector database, wiki, or other external system without separate authorization. Markdown in version control remains the reviewable source; retrieval indexes are derived artifacts.
 
-2. **Build evidence.** Read [evidence rules](./references/evidence-rules.md) and [document contracts](./references/document-contracts.md). If this or any other referenced reference document cannot be read, report the missing reference and stop rather than proceeding with assumed rules. Inventory workspace declarations, manifests, build and deployment definitions, and declared entry points across the requested scope. Trace relevant entry points through behavior-bearing code and focused tests. Inspect repository-provided ways to start, drive, observe, and validate the system.
+## Shared workflow
 
-   In Refresh mode, identify the evidence delta before editing and report the baseline used:
-   - If the user supplied a base ref, use it.
-   - Otherwise inspect `git status --short`, `git diff --name-status -M`, and `git diff --cached --name-status -M`.
-   - If `@{upstream}` exists, compute `git merge-base HEAD @{upstream}` and inspect `git diff --name-status -M <base>...HEAD`.
-   - If no user ref or reliable upstream merge-base exists, scan the full selected scope and report that no reliable baseline existed.
+1. **Establish scope and instructions.** Locate the repository root and applicable `AGENTS.md` files. Inspect the current worktree, existing knowledge, architecture records, and documentation conventions. In a monorepo, decide whether the request targets the root, one package, or shared behavior.
+2. **Inventory breadth-first and set a depth boundary.** Inspect tracked manifests, source and test roots, schemas, configuration definitions, CI/deployment files, runtime entrypoints, ADRs, and existing docs. Identify functionality candidates from maintained product docs, UI navigation and actions, registered HTTP/RPC routes, public APIs, CLI commands, scheduled jobs, event consumers, feature flags, permissions, and acceptance tests when those surfaces exist. Skip caches, build output, vendored dependencies, binaries, and secret-bearing local files. For a large or unfamiliar repository, run [scripts/project_knowledge.py](scripts/project_knowledge.py) in inventory mode before focused reading:
 
-   Keep one working evidence ledger. Record each user requirement, high-risk claim, non-obvious current-state claim, completeness or absence claim, stale claim, and contradiction as a row with these fields:
-   - `claim`
-   - `owner_document`
-   - `exact_source_or_command_result`
-   - `confidence`
-   - `inventory_scope`
-   - `source_of_truth_classification`
-   - `contradictions`
-   - `staleness` (Refresh mode only)
+   ```bash
+   python3 <skill-directory>/scripts/project_knowledge.py inventory --root <repository> --format text
+   ```
 
-   Evidence build is complete when every required ledger claim has a row, every high-risk current-state claim is verified, strongly inferred, or marked unknown, and every completeness or absence claim records a full-scope search. Ordinary path links, headings, and formatting claims do not need ledger rows; verify them during mechanical checks.
+   Add `--include-untracked` only when untracked files are part of the requested working-tree scope. Before deep tracing a large repository, follow the coverage-ledger and depth-boundary guidance in the content model; map interface families rather than enumerating endpoints merely to prove breadth.
+3. **Build an evidence map.** Read [references/evidence-governance.md](references/evidence-governance.md). Identify the goals the project enables for users, operators, API/library consumers, integrations, or system actors. Connect each confirmed capability to its exposed trigger, observable result, implementation entrypoints, state changes and side effects, contracts, constraints, and tests. Follow critical request, event, state, and data flows far enough to identify boundaries. Use the reference's lightweight claim ledger only for high-risk or non-obvious claims.
+4. **Select durable knowledge.** Every knowledge base created or maintained by this skill must include exact, root-level `CONTEXT.md` and `ARCHITECTURE.md` files, both linked from its entry page. `CONTEXT.md` owns the project purpose, actors, scope, terminology, and project-level functionality view; `ARCHITECTURE.md` owns the runtime/component map, boundaries, dependency direction, and key control/data flows. Keep both canonical files concise and link focused pages instead of duplicating their detail. Also include task routing, contracts, invariants, change impact, failure signals, and verification paths where they add decision value. Organize capabilities by stable outcome or journey, not by source directory, class, screen, or endpoint. Do not restate implementation that an agent can read directly.
+5. **Write for progressive disclosure.** Keep the root entry short, link to focused topic pages, and create only sections justified by the repository. Give each durable fact one owner and link to it instead of copying it. Prefer path plus symbol references over line numbers. Reuse authoritative existing docs instead of duplicating them.
+6. **Verify against evidence.** Before completing any write, read [references/validation.md](references/validation.md). Re-open every changed claim against code, tests, schemas, configuration, or accepted decisions. Run the deterministic helper when applicable, then perform the semantic and task-route checks; mechanical success cannot prove factual correctness.
+7. **Report the result.** State the created or updated files, covered scope, evidence and checks used, and any unverified gaps or stale candidates. For an audit, distinguish findings from proposed repairs.
 
-   Sample only for descriptive characterization: claims about typical patterns or representative examples. For any completeness, absence, uniqueness, or isolation claim, including claims using `all`, `none`, `only`, or `every`, search the full stated scope. When fewer than 10 files remain in scope, inspect all of them rather than sampling.
+## Completion standard
 
-3. **Select documents.** Apply the document contract value tests and ownership rules. Split context glossaries by evidenced domain language, not by directory, service, deployment unit, or technical layer. Create or retain only documents with evidenced value.
-
-4. **Draft or refresh.** Edit only selected, affected documents. Follow their contracts, preserve supported local guidance, and use canonical terminology consistently. Document stable relationships, constraints, source-of-truth locations, and observable feedback paths; report missing evidence or repository-local guardrails instead of guessing.
-
-   In Refresh mode, remove or correct affected stale paths, commands, names, boundaries, tests, and generated-code mappings. Recreate a missing linked document only when its value test still passes. For a CODE-MAP-only request, leave every other knowledge document byte-for-byte unchanged.
-
-5. **Verify.**
-   - Treat documented commands, source-of-truth or generated-output classifications, gated behavior, domain cardinality/lifecycle/ownership, and completeness, absence, uniqueness, or isolation claims as high-risk.
-   - Apply [adversarial verification](./references/adversarial-verification.md) to those high-risk claims.
-   - Perform every applicable [quality check](./references/quality-checks.md).
-   - Compare the final diff with the pre-edit knowledge set and remove unrelated wording, ordering, or formatting changes.
-   - Confirm that a repeated run over unchanged evidence would produce no content changes.
-
-6. **Report.** In the requested output language, use this compact report shape and omit empty sections: `Mode`, `Changed Files`, `Requirements Applied`, `Decisive Evidence`, `Consolidations`, `Stale or Unresolved Claims`, `Unknowns or Guardrail Gaps`, `Checks`.
+The knowledge base is useful when a coding agent can start at its entrypoint and, with few hops, answer: what the project enables and for whom; which capability or journey owns a behavior; where a change begins; which components or contracts it affects; which invariants it must preserve; and how to verify it. Missing `CONTEXT.md` or `ARCHITECTURE.md`, a missing functionality view, broken evidence links, invented commands, unresolved contradictions in critical behavior, or omitted known high-risk constraints block completion; unavailable optional checks must be reported as limitations.

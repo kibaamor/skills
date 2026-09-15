@@ -1,8 +1,0 @@
-{
-  "scripts": {
-    "test": "vitest run test/checkout.test.ts"
-  },
-  "devDependencies": {
-    "vitest": "2.0.0"
-  }
-}
