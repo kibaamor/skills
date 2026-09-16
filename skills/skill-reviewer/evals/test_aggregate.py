@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from _support import (
+    FS_SAFETY,
     OUTPUT_MODULE,
     REVIEW,
     SCRIPT,
@@ -201,6 +202,41 @@ class AggregateTests(unittest.TestCase):
             "aggregate.run_incomplete",
             {finding["code"] for finding in result["findings"]},
         )
+
+    def test_rejects_oversized_run_data_without_unbounded_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            candidate = root / "eval-one" / "with_skill"
+            candidate.mkdir(parents=True)
+            candidate_grading = grading([("Has result", True, "Found output.json")])
+            candidate_grading["padding"] = "x" * 2000
+            candidate_grading_text = json.dumps(candidate_grading)
+            write(candidate / "grading.json", candidate_grading_text)
+            write(
+                candidate / "timing.json",
+                json.dumps({"total_tokens": 1200, "duration_ms": 3000}),
+            )
+            self.write_run(
+                root,
+                "eval-one",
+                "old_skill",
+                grading([("Has result", False, "output.json is absent")]),
+                900,
+                2000,
+            )
+            with mock.patch.object(
+                FS_SAFETY, "MAX_TEXT_FILE_BYTES", len(candidate_grading_text) - 1
+            ):
+                result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
+
+        self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["complete"])
+        self.assertIsNone(result["facts"]["delta"])
+        self.assertIn(
+            "aggregate.run_incomplete",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertIn("resource exceeds", json.dumps(result).lower())
 
     def test_rejects_mismatched_paired_assertion_texts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

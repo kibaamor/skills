@@ -12,7 +12,10 @@ from typing import Any
 
 from .frontmatter import parse_frontmatter
 from .fs_safety import (
+    TextReadBudget,
+    TextReadError,
     is_link_like,
+    read_bounded_regular_utf8,
     resolve_package_data_file,
     resolve_within,
     windows_filename_issue,
@@ -52,8 +55,19 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
         )
         return finalize("validate-evals", path, facts, findings, max_findings), 1
 
+    text_budget = TextReadBudget()
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(read_bounded_regular_utf8(skill_root, path, text_budget))
+    except TextReadError as exc:
+        add_finding(
+            findings,
+            "error",
+            exc.code,
+            path,
+            str(exc),
+            "Use an ordinary bounded UTF-8 eval definition inside the target skill package.",
+        )
+        return finalize("validate-evals", path, facts, findings, max_findings), 1
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"Cannot parse {path} as JSON: {exc}") from exc
 
@@ -90,9 +104,11 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
         )
     else:
         try:
-            target_text = target_skill_md.read_text(encoding="utf-8")
+            target_text = read_bounded_regular_utf8(
+                skill_root, target_skill_md, text_budget
+            )
             target_frontmatter, _, target_parse_errors = parse_frontmatter(target_text)
-        except (OSError, UnicodeError) as exc:
+        except (OSError, TextReadError, UnicodeError) as exc:
             target_parse_errors = [f"Cannot read target SKILL.md: {exc}"]
             target_frontmatter = {}
         if target_parse_errors:

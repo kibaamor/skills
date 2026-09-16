@@ -14,8 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from .fs_safety import (
+    TextReadBudget,
     first_link_like_component,
     is_link_like,
+    read_bounded_regular_utf8,
     resolve_within,
 )
 from .report import Finding, add_finding, finalize
@@ -43,7 +45,9 @@ def metric(values: list[float]) -> dict[str, Any]:
     }
 
 
-def parse_run(root: Path, config_dir: Path) -> dict[str, Any]:
+def parse_run(
+    root: Path, config_dir: Path, text_budget: TextReadBudget
+) -> dict[str, Any]:
     grading_path = config_dir / "grading.json"
     timing_path = config_dir / "timing.json"
     redirected = [
@@ -64,8 +68,12 @@ def parse_run(root: Path, config_dir: Path) -> dict[str, Any]:
     except (OSError, RuntimeError, ValueError) as exc:
         raise ValueError("run data must resolve inside the iteration root") from exc
     try:
-        grading = json.loads(grading_path.read_text(encoding="utf-8"))
-        timing = json.loads(timing_path.read_text(encoding="utf-8"))
+        grading = json.loads(
+            read_bounded_regular_utf8(root, grading_path, text_budget)
+        )
+        timing = json.loads(
+            read_bounded_regular_utf8(root, timing_path, text_budget)
+        )
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"invalid JSON: {exc}") from exc
     if not isinstance(grading, dict):
@@ -132,6 +140,7 @@ def aggregate(
         raise ValueError("Candidate and baseline must be distinct non-empty directory names.")
 
     findings: list[Finding] = []
+    text_budget = TextReadBudget()
     values: dict[str, dict[str, list[float]]] = defaultdict(
         lambda: {"pass_rate": [], "time_seconds": [], "tokens": []}
     )
@@ -212,7 +221,7 @@ def aggregate(
                 )
         for config_dir in config_dirs:
             try:
-                parsed = parse_run(root, config_dir)
+                parsed = parse_run(root, config_dir, text_budget)
             except ValueError as exc:
                 add_finding(
                     findings,

@@ -7,8 +7,10 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from _support import (
+    FS_SAFETY,
     REVIEW,
     SKILL_ROOT,
     junction_or_fail,
@@ -27,6 +29,77 @@ class EvalsValidationTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(result["facts"]["target_skill_name"], "skill-reviewer")
         self.assertGreaterEqual(result["facts"]["eval_count"], 2)
+
+    def test_rejects_oversized_eval_definition_without_unbounded_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "oversized-evals-skill"
+            write(root / "SKILL.md", skill_text("oversized-evals-skill"))
+            evals_path = root / "evals" / "evals.json"
+            contents = json.dumps(
+                {
+                    "skill_name": "oversized-evals-skill",
+                    "evals": [
+                        {
+                            "id": "one",
+                            "prompt": "Run one realistic case.",
+                            "expected_output": "One observable result.",
+                        },
+                        {
+                            "id": "two",
+                            "prompt": "Run another realistic case.",
+                            "expected_output": "Another observable result.",
+                        },
+                    ],
+                }
+            )
+            write(evals_path, contents)
+            with mock.patch.object(
+                FS_SAFETY, "MAX_TEXT_FILE_BYTES", len(contents) - 1
+            ):
+                result, status = REVIEW.validate_evals(evals_path, 100)
+
+        self.assertEqual(status, 1)
+        self.assertEqual(result["facts"]["eval_count"], 0)
+        self.assertIn(
+            "package.resource_too_large",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_rejects_oversized_target_skill_during_evals_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "oversized-target-skill"
+            target_text = skill_text("oversized-target-skill") + ("x" * 400)
+            write(root / "SKILL.md", target_text)
+            evals_path = root / "evals" / "evals.json"
+            contents = json.dumps(
+                {
+                    "skill_name": "oversized-target-skill",
+                    "evals": [
+                        {
+                            "id": "one",
+                            "prompt": "Run one realistic case.",
+                            "expected_output": "One observable result.",
+                        },
+                        {
+                            "id": "two",
+                            "prompt": "Run another realistic case.",
+                            "expected_output": "Another observable result.",
+                        },
+                    ],
+                }
+            )
+            write(evals_path, contents)
+            with mock.patch.object(
+                FS_SAFETY, "MAX_TEXT_FILE_BYTES", len(contents) + 10
+            ):
+                result, status = REVIEW.validate_evals(evals_path, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "evals.target_frontmatter",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertIn("resource exceeds", json.dumps(result).lower())
 
     def test_rejects_skill_name_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -476,6 +549,26 @@ class TriggerValidationTests(unittest.TestCase):
             self.assertGreaterEqual(facts["coverage"][split]["negative"], 4)
         self.assertGreaterEqual(facts["split_fractions"]["validation"], 0.3)
         self.assertLessEqual(facts["split_fractions"]["validation"], 0.5)
+
+    def test_rejects_oversized_trigger_definition_without_unbounded_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "oversized-trigger-skill"
+            queries_path = root / "evals" / "trigger_queries.json"
+            data = trigger_queries()
+            data[0]["query"] = "Train yes " + ("x" * 200)
+            contents = json.dumps(data)
+            write(queries_path, contents)
+            with mock.patch.object(
+                FS_SAFETY, "MAX_TEXT_FILE_BYTES", len(contents) - 1
+            ):
+                result, status = REVIEW.validate_triggers(queries_path, 100)
+
+        self.assertEqual(status, 1)
+        self.assertEqual(result["facts"]["query_count"], 0)
+        self.assertIn(
+            "package.resource_too_large",
+            {finding["code"] for finding in result["findings"]},
+        )
 
     def test_reports_split_fractions_and_warns_on_imbalanced_splits(self) -> None:
         data: list[dict[str, object]] = []

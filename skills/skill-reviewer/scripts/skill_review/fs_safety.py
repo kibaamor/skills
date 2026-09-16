@@ -580,4 +580,4 @@ def resolve_package_data_file(source: Path) -> tuple[Path, Path, str | None]:
         return path, lexical_skill_root, "outside"
     if resolved_path != skill_root / relative_path:
         return path, skill_root, "parent_symlink"
-    return path, skill_root, None
+    return resolved_path, skill_root, None

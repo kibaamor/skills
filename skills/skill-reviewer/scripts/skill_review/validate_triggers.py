@@ -10,7 +10,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .fs_safety import resolve_package_data_file
+from .fs_safety import (
+    TextReadBudget,
+    TextReadError,
+    read_bounded_regular_utf8,
+    resolve_package_data_file,
+)
 from .report import Finding, add_finding, finalize
 
 TRIGGER_FIELDS = {"query", "should_trigger", "split", "rationale"}
@@ -19,7 +24,7 @@ TRIGGER_FIELDS = {"query", "should_trigger", "split", "rationale"}
 def validate_triggers(
     triggers_path: Path, max_findings: int
 ) -> tuple[dict[str, Any], int]:
-    path, _, path_issue = resolve_package_data_file(triggers_path)
+    path, skill_root, path_issue = resolve_package_data_file(triggers_path)
     findings: list[Finding] = []
     coverage = {
         "train": {"positive": 0, "negative": 0},
@@ -54,7 +59,19 @@ def validate_triggers(
         )
         return finalize("validate-triggers", path, facts, findings, max_findings), 1
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(
+            read_bounded_regular_utf8(skill_root, path, TextReadBudget())
+        )
+    except TextReadError as exc:
+        add_finding(
+            findings,
+            "error",
+            exc.code,
+            path,
+            str(exc),
+            "Use an ordinary bounded UTF-8 trigger query definition inside the target skill package.",
+        )
+        return finalize("validate-triggers", path, facts, findings, max_findings), 1
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"Cannot parse {path} as JSON: {exc}") from exc
 
