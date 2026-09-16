@@ -1,6 +1,6 @@
 ---
 name: jira-bugfix-summarizer
-description: "Use when asked to summarize an already fixed Jira bug for stakeholders, including impact, root cause, fix, and validation. Do not use for diagnosing unresolved bugs, implementing fixes, or updating Jira."
+description: "Use when asked to draft a read-only stakeholder summary of an already fixed Jira bug, including impact, root cause, fix, and validation. Do not use for diagnosing, reproducing, implementing, validating live systems, deploying, updating Jira, writing files, or posting externally."
 ---
 
 # Bugfix Summarizer
@@ -15,7 +15,7 @@ Preserve literal identifiers exactly while inspecting evidence. The stakeholder 
 
 Use this skill only when the bug is already fixed or the user supplies the completed fix details.
 
-If the user is asking to diagnose, reproduce, implement, validate live systems, deploy, or update Jira, state that this skill only summarizes already-fixed bugs and stop. Do not switch into those workflows from this skill.
+If the user is asking to diagnose, reproduce, implement, validate live systems, deploy, update Jira, update release notes, write files, or post/publish to external systems, state that this skill only drafts read-only summaries of already-fixed bugs and stop. Do not switch into those workflows from this skill.
 
 ## Jira Inputs
 
@@ -28,7 +28,7 @@ Proceed only when the resolution or supporting evidence shows a completed fix. T
 1. Confirm the fixed state as defined in Jira Inputs. If current Jira status conflicts with the fix evidence, or fixed state is otherwise unclear, ask one bundled clarification question.
 2. Gather only supported facts. Extract the symptom, affected users or workflow, business impact, plain-language root cause, fixed behavior, user-required action, effective fix records for internal traceability, and validation evidence.
 3. Classify gaps. If a fact is unavailable, label it as `Not confirmed in the supplied material` or `Not applicable`; do not infer it from adjacent details.
-4. Load `references/change-records.md` only if the user explicitly asks for a fix-records appendix. Keep those records out of the default stakeholder summary.
+4. Load `references/change-records.md` only if the user explicitly asks for a separate `Fix Records` section or appendix, or asks to include effective fix records. Keep those records out of the default stakeholder summary.
 5. Draft for non-technical stakeholders. Put user-visible impact, fixed behavior, required action, and validation before implementation detail. Keep technical anchors only when they are necessary to identify the fix, explain customer impact, or support validation.
 6. Self-check. Confirm every claim is supported by the supplied material, the final summary omits Jira metadata and internal deployment details, and validation is labelled as confirmed or suggested.
 
@@ -44,7 +44,7 @@ Proceed only when the resolution or supporting evidence shows a completed fix. T
 
 Use this structure unless the user asks for a different format. Keep it concise enough for a non-technical stakeholder update.
 
-Final-summary guardrails: omit all Jira metadata (issue ID, URL, status, resolution, field names, transitions, internal ticket workflow) and all internal deployment, release, build, branch, environment, or publication details (including rollout timing and landed/merged wording). Include customer-facing version, release, configuration, data, or update identifiers only when they are required for user action, validation, or disambiguation. These guardrails govern the main summary only; a fix-records appendix the user explicitly requested (workflow step 4) is exempt and stays out of the main summary.
+Final-summary guardrails: omit all Jira metadata (issue ID, URL, status, resolution, field names, transitions, internal ticket workflow) and all internal deployment, release, build, branch, environment, or publication details (including rollout timing and landed/merged wording). Include customer-facing version, release, configuration, data, or update identifiers only when they are required for user action, validation, or disambiguation. These guardrails govern the main summary only; a `Fix Records` appendix loaded through workflow step 4 is exempt and stays separate.
 
 ```markdown
 ## Bugfix Summary
@@ -78,4 +78,3 @@ Final-summary guardrails: omit all Jira metadata (issue ID, URL, status, resolut
 - Separate confirmed facts from suggested follow-up. Do not hide uncertainty in passive language.
 - Keep validation executable: prerequisite, action, expected result, and regression boundary.
 - Separate failing paths from already-correct paths when it helps validation.
-- If the user explicitly asks for a separate fix-records appendix, load `references/change-records.md` and include only final effective records.

@@ -1,6 +1,6 @@
 # Fix Records
 
-Load this file only when the user explicitly asks for a separate `Fix Records` appendix. Do not use this file for the default stakeholder summary.
+Use this file for the separate `Fix Records` section or appendix loaded through workflow step 4. Do not use it for the default stakeholder summary.
 
 List only final effective changed results: landed fix commits, submitted source-control changes, published config or data changes, migrations that ran, or build/deployment/version records that prove where the fix took effect.
 
