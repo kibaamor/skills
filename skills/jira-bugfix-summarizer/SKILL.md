@@ -1,21 +1,23 @@
 ---
 name: jira-bugfix-summarizer
-description: "Use when asked to draft a read-only stakeholder summary of an already fixed Jira bug, including impact, root cause, fix records, and validation. Do not use for diagnosing, reproducing, implementing, validating live systems, deploying, updating Jira, writing files, or posting externally."
+description: "Draft a read-only stakeholder summary or Jira-ready comment for an already fixed Jira bug. Use for impact, root cause, fix records, and validation evidence; not for diagnosis, reproduction, implementation, live validation, deployment, Jira mutation, file writes, or external posting."
 ---
 
 # Bugfix Summarizer
 
-Create a non-technical stakeholder-facing summary of a bug after the fix is already known.
+Create a non-technical stakeholder-facing summary of a fixed bug.
 
-This is a read-only summarization skill. You may read Jira issue details, linked resources, supplied diffs, release notes, logs, comments, and commits that the user authorized you to inspect. Do not create, update, transition, comment on, attach to, or write to Jira, repositories, files, or external systems.
+This is read-only. Inspect only authorized Jira issue details, linked resources, supplied diffs, release notes, logs, comments, and commits. Do not create, update, transition, attach to, write to, or submit comments in Jira, repositories, files, or external systems.
 
-Preserve literal identifiers exactly while inspecting evidence. Outside `Fix Records`, the stakeholder summary follows the guardrails in Output: no Jira metadata, no internal deployment details, and customer-facing identifiers only when user action, validation, or disambiguation requires them.
+Preserve literal identifiers exactly while inspecting evidence. Outside `Fix Records`, apply the Output guardrails.
 
 ## Fit
 
 Use this skill only when the bug is already fixed or the user supplies the completed fix details.
 
-If the user is asking to diagnose, reproduce, implement, validate live systems, deploy, update Jira, update release notes, write files, or post/publish to external systems, state that this skill only drafts read-only summaries of already-fixed bugs and stop. Do not switch into those workflows from this skill.
+If the user is asking to diagnose, reproduce, implement, validate live systems, deploy, update release notes, write files, or mutate Jira or another external system, state that this skill only drafts read-only summaries of already-fixed bugs and stop.
+
+If the user asks to add, post, or comment the summary in Jira, draft Jira-ready text, apply Jira-ready formatting from Output, and stop before the external mutation.
 
 ## Jira Inputs
 
@@ -30,7 +32,8 @@ Proceed only when the resolution or supporting evidence shows a completed fix. T
 3. Classify gaps. If a fact is unavailable, label it as `Not confirmed in the supplied material` or `Not applicable`; do not infer it from adjacent details.
 4. Load `references/fix-records.md` before drafting the default `Fix Records` section.
 5. Draft using the Output structure, putting user-visible impact, fixed behavior, required action, and validation before traceability detail.
-6. Self-check. Confirm every claim is supported by the supplied material, non-`Fix Records` sections omit Jira metadata and internal deployment details, `Fix Records` satisfies `references/fix-records.md`, and validation is labelled as confirmed or suggested.
+6. If the user asked for Jira placement, apply Jira-ready formatting from Output before responding.
+7. Self-check. Confirm every claim is supported by the supplied material, non-`Fix Records` sections omit Jira metadata and internal deployment details, `Fix Records` satisfies `references/fix-records.md`, validation is labelled as confirmed or suggested, and Jira-ready output satisfies the Jira-ready formatting rule.
 
 ## Evidence Rules
 
@@ -45,6 +48,10 @@ Proceed only when the resolution or supporting evidence shows a completed fix. T
 Use this structure unless the user asks for a different format. Keep it concise enough for a non-technical stakeholder update.
 
 Final-summary guardrails: omit all Jira metadata (issue ID, URL, status, resolution, field names, transitions, internal ticket workflow) and all internal deployment, release, build, branch, environment, or publication details (including rollout timing and landed/merged wording). Include customer-facing version, release, configuration, data, or update identifiers only when they are required for user action, validation, or disambiguation. These guardrails govern the main summary except the separate traceability details in `Fix Records`, where linked modification records and necessary source-control, build, deployment, configuration, data, or migration identifiers are allowed.
+
+Format each section as scannable Markdown. Use one short paragraph for a single idea; when a section has multiple distinct facts, actions, records, or validation methods, split them into unordered bullets or separate unnumbered paragraphs instead of one dense paragraph or a numbered sequence. In `Validation`, each distinct method or check is its own bullet, starting with `Validated:` for confirmed checks or `Suggested validation:` for unrun checks.
+
+Jira-ready formatting: for Jira placement requests, preserve the drafted Markdown as the exact body handed to any later authorized Jira workflow. Keep heading levels, paragraph breaks, unordered bullets, and Markdown links. If a Jira tool requires structured rich text instead of Markdown, map the draft to equivalent heading, paragraph, bullet, and link blocks rather than collapsed plain text.
 
 ```markdown
 ## Bugfix Summary
@@ -65,16 +72,15 @@ Final-summary guardrails: omit all Jira metadata (issue ID, URL, status, resolut
 
 ### Validation
 
-<Start each item with `Validated:` only for confirmed validation. Use `Suggested validation:` for unrun checks. Include prerequisites, action, expected result, reverse/recovery checks when relevant, and regression scope.>
+- `Validated:` <Confirmed check with prerequisite, action, expected result, reverse/recovery checks when relevant, and regression scope.>
+- `Suggested validation:` <Unrun check with prerequisite, action, expected result, reverse/recovery checks when relevant, and regression scope.>
 ```
 
 ## Rules
 
 - Ask at most one bundled clarification question before drafting. Bundle all missing facts together.
 - If the user approves omissions or asks for a best-effort draft, mark missing facts explicitly and continue.
-- Prefer short paragraphs and concrete bullets over long incident-report prose.
-- Write for non-technical readers. Include technical details only when they are needed to understand impact, required action, validation, or traceability.
-- Omit implementation internals, stack traces, file paths, function names, config keys, and low-level code details unless the user requested them or they are essential evidence.
+- Write for non-technical readers. Omit implementation internals, stack traces, file paths, function names, config keys, and low-level code details unless the user requested them or they are needed to understand impact, required action, validation, or traceability.
 - Separate confirmed facts from suggested follow-up. Do not hide uncertainty in passive language.
 - Keep validation executable: prerequisite, action, expected result, and regression boundary.
 - Separate failing paths from already-correct paths when it helps validation.
