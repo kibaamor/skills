@@ -1,0 +1,601 @@
+"""Package-boundary defenses: links, junctions, TOCTOU, and inventory."""
+
+from __future__ import annotations
+
+import errno
+import json
+import os
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from _support import (
+    FS_SAFETY,
+    REVIEW,
+    SCRIPT,
+    junction_or_fail,
+    skill_text,
+    symlink_or_skip,
+    trigger_queries,
+    write,
+)
+
+
+class StaticReviewTests(unittest.TestCase):
+    def test_linked_agents_directory_is_not_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "metadata-skill"
+            outside_agents = temporary_root / "outside-agents"
+            write(root / "SKILL.md", skill_text("metadata-skill"))
+            write(
+                outside_agents / "openai.yaml",
+                'interface:\n  default_prompt: "Do not mention the skill token"\n',
+            )
+            symlink_or_skip(
+                self,
+                root / "agents",
+                outside_agents,
+                target_is_directory=True,
+            )
+            result, _ = REVIEW.static_review(root, 100)
+
+        codes = {finding["code"] for finding in result["findings"]}
+        self.assertIn("package.metadata_symlink", codes)
+        self.assertNotIn("metadata.default_prompt_missing_skill", codes)
+
+    def test_windows_reparse_attribute_is_link_like(self) -> None:
+        info = mock.Mock(
+            st_mode=stat.S_IFDIR,
+            st_file_attributes=REVIEW.WINDOWS_REPARSE_POINT,
+        )
+        with mock.patch.object(REVIEW.os, "lstat", return_value=info):
+            self.assertTrue(REVIEW.is_link_like(Path("junction")))
+
+    def test_reports_resource_inventory_access_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "unreadable-skill"
+            write(root / "SKILL.md", skill_text("unreadable-skill"))
+            references = root / "references"
+            references.mkdir()
+            original_scandir = REVIEW.os.scandir
+
+            def controlled_scandir(path: Path):
+                if Path(path) == references:
+                    raise PermissionError(
+                        errno.EACCES,
+                        "Permission denied",
+                        str(references),
+                    )
+                return original_scandir(path)
+
+            with mock.patch.object(
+                REVIEW.os, "scandir", side_effect=controlled_scandir
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "package.resource_unreadable",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    @unittest.skipUnless(os.name == "posix", "symbolic links require POSIX")
+    def test_resource_links_make_inventory_incomplete(self) -> None:
+        for nested in (False, True):
+            with self.subTest(nested=nested):
+                with tempfile.TemporaryDirectory() as temporary:
+                    temporary_root = Path(temporary)
+                    root = temporary_root / "linked-resource-skill"
+                    external = temporary_root / "external"
+                    write(root / "SKILL.md", skill_text("linked-resource-skill"))
+                    write(external / "guide.md", "EXTERNAL_SENTINEL\n")
+                    if nested:
+                        link = root / "references" / "guide.md"
+                        link.parent.mkdir()
+                        link.symlink_to(external / "guide.md")
+                    else:
+                        link = root / "references"
+                        link.symlink_to(external, target_is_directory=True)
+
+                    result, status = REVIEW.static_review(root, 100)
+
+                self.assertEqual(status, 1)
+                self.assertFalse(result["facts"]["resource_inventory_complete"])
+                self.assertIn(
+                    "package.resource_symlink",
+                    {finding["code"] for finding in result["findings"]},
+                )
+                self.assertNotIn("EXTERNAL_SENTINEL", json.dumps(result))
+
+    def test_pycache_in_skill_ancestor_does_not_hide_resources(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "__pycache__" / "ancestor-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "ancestor-skill",
+                    body="Read [the guide](references/guide.md).",
+                ),
+            )
+            write(root / "references" / "guide.md", "# Guide\n")
+
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(result["facts"]["resource_files"]["references"], 1)
+        self.assertTrue(result["facts"]["resource_inventory_complete"])
+
+    @unittest.skipUnless(os.name == "posix", "symbolic links require POSIX")
+    def test_queued_resource_directory_cannot_be_swapped_for_a_link(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "swapped-directory-skill"
+            child = root / "references" / "child"
+            parked = temporary_root / "parked-child"
+            external = temporary_root / "external"
+            write(root / "SKILL.md", skill_text("swapped-directory-skill"))
+            child.mkdir(parents=True)
+            write(
+                external / "secret.md",
+                "EXTERNAL_SENTINEL [missing](references/external.md)\n",
+            )
+            original_scandir = REVIEW.os.scandir
+            swapped = False
+
+            def swapping_scandir(path: Path):
+                nonlocal swapped
+                if Path(path) == child and not swapped:
+                    swapped = True
+                    child.rename(parked)
+                    child.symlink_to(external, target_is_directory=True)
+                return original_scandir(path)
+
+            with mock.patch.object(
+                REVIEW.os, "scandir", side_effect=swapping_scandir
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertTrue(swapped)
+        self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["resource_inventory_complete"])
+        self.assertIn(
+            "package.resource_changed",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertNotIn("EXTERNAL_SENTINEL", json.dumps(result))
+
+    def test_bounded_reader_rejects_same_size_change_during_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "guide.md"
+            write(path, "A" * 100_000)
+            original_info = path.stat()
+            original_read = REVIEW.os.read
+            changed = False
+
+            def changing_read(descriptor: int, size: int) -> bytes:
+                nonlocal changed
+                chunk = original_read(descriptor, size)
+                if chunk and not changed:
+                    changed = True
+                    with path.open("r+b") as stream:
+                        stream.write(b"B" * 100_000)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    os.utime(
+                        path,
+                        ns=(
+                            original_info.st_atime_ns,
+                            original_info.st_mtime_ns + 2_000_000_000,
+                        ),
+                    )
+                return chunk
+
+            with (
+                mock.patch.object(REVIEW.os, "read", side_effect=changing_read),
+                mock.patch.object(
+                    REVIEW.os, "close", wraps=REVIEW.os.close
+                ) as close_descriptor,
+                self.assertRaises(REVIEW.TextReadError) as caught,
+            ):
+                REVIEW.read_bounded_regular_utf8(
+                    root, path, REVIEW.TextReadBudget()
+                )
+
+        self.assertTrue(changed)
+        self.assertEqual(caught.exception.code, "package.resource_changed")
+        close_descriptor.assert_called_once()
+
+    def test_windows_stable_signature_ignores_inconsistent_ctime(self) -> None:
+        class StatInfo:
+            st_size = 100
+            st_mtime_ns = 200
+
+            def __init__(self, ctime_ns: int) -> None:
+                self.st_ctime_ns = ctime_ns
+
+        with mock.patch.object(REVIEW.os, "name", "nt"):
+            lstat_signature = REVIEW.stable_file_signature(StatInfo(300))
+            fstat_signature = REVIEW.stable_file_signature(StatInfo(200))
+
+        self.assertEqual(lstat_signature, fstat_signature)
+
+    @unittest.skipUnless(
+        os.name == "nt", "cached directory metadata is Windows-only"
+    )
+    def test_windows_nested_directory_inventory_is_stable(self) -> None:
+        for index in range(50):
+            with (
+                self.subTest(index=index),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary) / f"nested-skill-{index}"
+                write(root / "SKILL.md", skill_text(f"nested-skill-{index}"))
+                write(root / "references" / "nested" / "guide.md", "# Guide\n")
+
+                result, status = REVIEW.static_review(root, 100)
+
+            self.assertEqual(status, 0)
+            self.assertTrue(result["facts"]["resource_inventory_complete"])
+            self.assertNotIn(
+                "package.resource_changed",
+                {finding["code"] for finding in result["findings"]},
+            )
+
+    @unittest.skipUnless(
+        os.name == "posix" and hasattr(os, "mkfifo"),
+        "FIFO resources require POSIX",
+    )
+    def test_fifo_resource_is_rejected_without_being_opened(self) -> None:
+        for relative in (
+            "SKILL.md",
+            "references/hang.md",
+            "scripts/hang.py",
+            "agents/openai.yaml",
+        ):
+            with self.subTest(relative=relative):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary) / "fifo-resource-skill"
+                    if relative != "SKILL.md":
+                        write(
+                            root / "SKILL.md",
+                            skill_text("fifo-resource-skill"),
+                        )
+                    else:
+                        root.mkdir()
+                    fifo = root / relative
+                    fifo.parent.mkdir(parents=True, exist_ok=True)
+                    os.mkfifo(fifo)
+                    completed = subprocess.run(
+                        [
+                            sys.executable,
+                            "-B",
+                            str(SCRIPT),
+                            "static",
+                            str(root),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=3,
+                    )
+
+                self.assertEqual(completed.returncode, 1, completed.stderr)
+                result = json.loads(completed.stdout)
+                self.assertIn(
+                    "package.resource_special_file",
+                    {finding["code"] for finding in result["findings"]},
+                )
+                self.assertNotIn("Traceback", completed.stderr)
+
+    def test_resource_entry_budget_stops_unbounded_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "entry-budget-skill"
+            write(root / "SKILL.md", skill_text("entry-budget-skill"))
+            for index in range(3):
+                write(root / "assets" / f"asset-{index}.bin", "x")
+            with mock.patch.object(
+                FS_SAFETY, "MAX_RESOURCE_ENTRIES", 2
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "package.resource_entry_limit",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertFalse(result["facts"]["resource_inventory_complete"])
+
+    def test_resource_depth_budget_stops_deep_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "depth-budget-skill"
+            write(root / "SKILL.md", skill_text("depth-budget-skill"))
+            write(
+                root / "assets" / "one" / "two" / "three" / "asset.bin",
+                "x",
+            )
+            with mock.patch.object(FS_SAFETY, "MAX_RESOURCE_DEPTH", 1):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "package.resource_depth_limit",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertFalse(result["facts"]["resource_inventory_complete"])
+
+    def test_oversized_text_resource_is_not_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "text-size-budget-skill"
+            oversized = root / "references" / "oversized.md"
+            skill_contents = skill_text(
+                "text-size-budget-skill",
+                body="Read [the guide](references/oversized.md).",
+            )
+            write(root / "SKILL.md", skill_contents)
+            per_file_limit = (root / "SKILL.md").stat().st_size
+            write(oversized, "x" * (per_file_limit + 1))
+            real_open = REVIEW.os.open
+
+            def guarded_open(
+                path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+                flags: int,
+                mode: int = 0o777,
+                *,
+                dir_fd: int | None = None,
+            ) -> int:
+                if Path(path) == oversized:
+                    self.fail("oversized instruction resource was read")
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with (
+                mock.patch.object(
+                    FS_SAFETY,
+                    "MAX_TEXT_FILE_BYTES",
+                    per_file_limit,
+                ),
+                mock.patch.object(
+                    FS_SAFETY,
+                    "MAX_TOTAL_TEXT_BYTES",
+                    per_file_limit * 3,
+                ),
+                mock.patch.object(REVIEW.os, "open", guarded_open),
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertEqual(
+            [
+                finding["path"]
+                for finding in result["findings"]
+                if finding["code"] == "package.resource_too_large"
+            ],
+            [str(oversized)],
+        )
+        self.assertEqual(result["facts"]["text_bytes_read"], per_file_limit)
+
+    def test_total_text_budget_stops_reading_later_resources(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "total-text-budget-skill"
+            first = root / "references" / "first.md"
+            second = root / "references" / "second.md"
+            skill_contents = skill_text(
+                "total-text-budget-skill",
+                body=(
+                    "Read [first](references/first.md) and "
+                    "[second](references/second.md)."
+                ),
+            )
+            write(root / "SKILL.md", skill_contents)
+            write(first, "123456")
+            write(second, "abcdef")
+            skill_bytes = (root / "SKILL.md").stat().st_size
+            with (
+                mock.patch.object(
+                    FS_SAFETY,
+                    "MAX_TEXT_FILE_BYTES",
+                    skill_bytes + 10,
+                ),
+                mock.patch.object(
+                    FS_SAFETY,
+                    "MAX_TOTAL_TEXT_BYTES",
+                    skill_bytes + 10,
+                ),
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "package.resource_text_budget",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
+    def test_agents_directory_junction_is_not_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "junction-skill"
+            outside_agents = temporary_root / "outside-agents"
+            link = root / "agents"
+            write(root / "SKILL.md", skill_text("junction-skill"))
+            write(
+                outside_agents / "openai.yaml",
+                'interface:\n  default_prompt: "Do not mention the skill token"\n',
+            )
+            junction_or_fail(self, link, outside_agents)
+            try:
+                result, status = REVIEW.static_review(root, 100)
+            finally:
+                if os.path.lexists(link):
+                    os.rmdir(link)
+            self.assertTrue((outside_agents / "openai.yaml").is_file())
+
+        codes = {finding["code"] for finding in result["findings"]}
+        self.assertEqual(status, 1)
+        self.assertTrue(
+            {"package.metadata_symlink", "package.metadata_outside"}.issubset(codes)
+        )
+        self.assertNotIn("metadata.default_prompt_missing_skill", codes)
+
+    @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
+    def test_reference_directory_junctions_are_not_read(self) -> None:
+        for index, relative_directory in enumerate(
+            ("references", "references/nested")
+        ):
+            with self.subTest(relative_directory=relative_directory):
+                with tempfile.TemporaryDirectory() as temporary:
+                    temporary_root = Path(temporary)
+                    root = temporary_root / f"resource-skill-{index}"
+                    outside = temporary_root / f"outside-references-{index}"
+                    pointer = f"{relative_directory}/guide.md"
+                    write(
+                        root / "SKILL.md",
+                        skill_text(
+                            f"resource-skill-{index}",
+                            body=f"Read [the guide]({pointer}).",
+                        ),
+                    )
+                    write(
+                        outside / "guide.md",
+                        "EXTERNAL_REFERENCE_SENTINEL\n"
+                        "Read [missing](references/external-sentinel.md).\n",
+                    )
+                    link = root / relative_directory
+                    link.parent.mkdir(parents=True, exist_ok=True)
+                    junction_or_fail(self, link, outside)
+                    guarded_paths = {
+                        Path(os.path.abspath(link / "guide.md")),
+                        Path(os.path.abspath(outside / "guide.md")),
+                    }
+                    real_read_text = Path.read_text
+
+                    def guarded_read_text(
+                        path: Path, *args: object, **kwargs: object
+                    ) -> str:
+                        self.assertNotIn(Path(os.path.abspath(path)), guarded_paths)
+                        return real_read_text(path, *args, **kwargs)
+
+                    try:
+                        with mock.patch.object(
+                            Path, "read_text", guarded_read_text
+                        ):
+                            result, status = REVIEW.static_review(root, 100)
+                    finally:
+                        if os.path.lexists(link):
+                            os.rmdir(link)
+                    self.assertTrue((outside / "guide.md").is_file())
+
+                self.assertEqual(status, 1)
+                codes = {finding["code"] for finding in result["findings"]}
+                self.assertTrue(
+                    {"package.resource_symlink", "pointer.target_outside"}.issubset(
+                        codes
+                    )
+                )
+                self.assertEqual(result["facts"]["resource_files"]["references"], 1)
+                self.assertNotIn("EXTERNAL_REFERENCE_SENTINEL", json.dumps(result))
+                self.assertNotIn("external-sentinel.md", json.dumps(result))
+
+    def test_rejects_pointer_resolving_through_symlink_outside_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "linked-skill"
+            outside = temporary_root / "outside.md"
+            write(outside, "Do not inspect me.\n")
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "linked-skill",
+                    body="Read [the guide](references/outside.md).",
+                ),
+            )
+            link = root / "references" / "outside.md"
+            link.parent.mkdir(parents=True)
+            symlink_or_skip(self, link, outside)
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertTrue(
+            {"package.resource_symlink", "pointer.target_outside"}.issubset(
+                {finding["code"] for finding in result["findings"]}
+            )
+        )
+
+    def test_rejects_symlinked_root_skill_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "linked-skill"
+            outside = temporary_root / "outside.md"
+            write(outside, skill_text("linked-skill"))
+            root.mkdir()
+            symlink_or_skip(self, root / "SKILL.md", outside)
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "package.skill_md_symlink",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+
+class RootAliasTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
+    def test_accepts_package_root_junction_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "aliased-skill"
+            alias = temporary_root / "selected-package-alias"
+            write(root / "SKILL.md", skill_text("aliased-skill"))
+            write(
+                root / "evals" / "evals.json",
+                json.dumps(
+                    {
+                        "skill_name": "aliased-skill",
+                        "evals": [
+                            {
+                                "id": "one",
+                                "prompt": "Run the first case.",
+                                "expected_output": "The first result.",
+                            },
+                            {
+                                "id": "two",
+                                "prompt": "Run the second case.",
+                                "expected_output": "The second result.",
+                            },
+                        ],
+                    }
+                ),
+            )
+            write(
+                root / "evals" / "trigger_queries.json",
+                json.dumps(trigger_queries()),
+            )
+            expected_subject = str(root.resolve())
+            junction_or_fail(self, alias, root)
+            try:
+                static_result, static_status = REVIEW.static_review(alias, 100)
+                evals_result, evals_status = REVIEW.validate_evals(
+                    alias / "evals" / "evals.json", 100
+                )
+                triggers_result, triggers_status = REVIEW.validate_triggers(
+                    alias / "evals" / "trigger_queries.json", 100
+                )
+            finally:
+                if os.path.lexists(alias):
+                    os.rmdir(alias)
+            self.assertTrue((root / "SKILL.md").is_file())
+
+        self.assertEqual((static_status, evals_status, triggers_status), (0, 0, 0))
+        self.assertEqual(static_result["subject"], expected_subject)
+        self.assertEqual(static_result["facts"]["skill_name"], "aliased-skill")
+        self.assertEqual(evals_result["facts"]["eval_count"], 2)
+        self.assertEqual(triggers_result["facts"]["query_count"], 4)
+
+
+if __name__ == "__main__":
+    unittest.main()
