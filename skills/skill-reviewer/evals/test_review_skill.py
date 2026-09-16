@@ -25,6 +25,10 @@ if SPEC is None or SPEC.loader is None:
 REVIEW = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = REVIEW
 SPEC.loader.exec_module(REVIEW)
+FS_SAFETY = sys.modules["skill_review.fs_safety"]
+MARKDOWN_SCAN = sys.modules["skill_review.markdown_scan"]
+STATIC_REVIEW_MODULE = sys.modules["skill_review.static_review"]
+OUTPUT_MODULE = sys.modules["skill_review.output"]
 
 
 def write(path: Path, content: str) -> None:
@@ -619,7 +623,7 @@ class StaticReviewTests(unittest.TestCase):
             write(first, "# First\n")
             write(second, "# Second\n")
             expected_bytes = (root / "SKILL.md").stat().st_size + first.stat().st_size
-            with mock.patch.object(REVIEW, "MAX_RESOURCE_ENTRIES", 1):
+            with mock.patch.object(STATIC_REVIEW_MODULE, "MAX_RESOURCE_ENTRIES", 1):
                 result, status = REVIEW.static_review(root, 100)
 
         self.assertEqual(status, 1)
@@ -661,14 +665,19 @@ class StaticReviewTests(unittest.TestCase):
 
             with (
                 mock.patch.object(
-                    REVIEW,
+                    STATIC_REVIEW_MODULE,
                     "first_link_like_component",
                     side_effect=detect_companion_link,
                 ),
                 mock.patch.object(
-                    REVIEW,
+                    STATIC_REVIEW_MODULE,
                     "resolve_within",
                     side_effect=resolve_companion_link,
+                ),
+                mock.patch.object(
+                    FS_SAFETY,
+                    "first_link_like_component",
+                    side_effect=detect_companion_link,
                 ),
             ):
                 result, status = REVIEW.static_review(root, 100)
@@ -768,21 +777,21 @@ class StaticReviewTests(unittest.TestCase):
         )
 
     def test_limits_unclosed_markdown_bracket_depth(self) -> None:
-        with mock.patch.object(REVIEW, "MAX_MARKDOWN_BRACKET_DEPTH", 4):
+        with mock.patch.object(MARKDOWN_SCAN, "MAX_MARKDOWN_BRACKET_DEPTH", 4):
             with self.assertRaisesRegex(
                 REVIEW.MarkdownScanLimitError, "4-level scan budget"
             ):
                 REVIEW.markdown_link_targets("[" * 5)
 
     def test_limits_markdown_code_span_delimiters(self) -> None:
-        with mock.patch.object(REVIEW, "MAX_MARKDOWN_CODE_SPAN_DELIMITERS", 4):
+        with mock.patch.object(MARKDOWN_SCAN, "MAX_MARKDOWN_CODE_SPAN_DELIMITERS", 4):
             with self.assertRaisesRegex(
                 REVIEW.MarkdownScanLimitError, "4-run scan budget"
             ):
                 REVIEW.markdown_link_targets("`a\n" * 5)
 
     def test_limits_markdown_container_depth(self) -> None:
-        with mock.patch.object(REVIEW, "MAX_MARKDOWN_CONTAINER_DEPTH", 2):
+        with mock.patch.object(MARKDOWN_SCAN, "MAX_MARKDOWN_CONTAINER_DEPTH", 2):
             with self.assertRaisesRegex(
                 REVIEW.MarkdownScanLimitError, "2-level scan budget"
             ):
@@ -1424,7 +1433,7 @@ class StaticReviewTests(unittest.TestCase):
             for index in range(3):
                 write(root / "assets" / f"asset-{index}.bin", "x")
             with mock.patch.object(
-                REVIEW, "MAX_RESOURCE_ENTRIES", 2, create=True
+                FS_SAFETY, "MAX_RESOURCE_ENTRIES", 2
             ):
                 result, status = REVIEW.static_review(root, 100)
 
@@ -1443,7 +1452,7 @@ class StaticReviewTests(unittest.TestCase):
                 root / "assets" / "one" / "two" / "three" / "asset.bin",
                 "x",
             )
-            with mock.patch.object(REVIEW, "MAX_RESOURCE_DEPTH", 1, create=True):
+            with mock.patch.object(FS_SAFETY, "MAX_RESOURCE_DEPTH", 1):
                 result, status = REVIEW.static_review(root, 100)
 
         self.assertEqual(status, 1)
@@ -1479,16 +1488,14 @@ class StaticReviewTests(unittest.TestCase):
 
             with (
                 mock.patch.object(
-                    REVIEW,
+                    FS_SAFETY,
                     "MAX_TEXT_FILE_BYTES",
                     per_file_limit,
-                    create=True,
                 ),
                 mock.patch.object(
-                    REVIEW,
+                    FS_SAFETY,
                     "MAX_TOTAL_TEXT_BYTES",
                     per_file_limit * 3,
-                    create=True,
                 ),
                 mock.patch.object(REVIEW.os, "open", guarded_open),
             ):
@@ -1523,16 +1530,14 @@ class StaticReviewTests(unittest.TestCase):
             skill_bytes = (root / "SKILL.md").stat().st_size
             with (
                 mock.patch.object(
-                    REVIEW,
+                    FS_SAFETY,
                     "MAX_TEXT_FILE_BYTES",
                     skill_bytes + 10,
-                    create=True,
                 ),
                 mock.patch.object(
-                    REVIEW,
+                    FS_SAFETY,
                     "MAX_TOTAL_TEXT_BYTES",
                     skill_bytes + 10,
-                    create=True,
                 ),
             ):
                 result, status = REVIEW.static_review(root, 100)
@@ -3085,7 +3090,7 @@ class AggregateTests(unittest.TestCase):
 
             with (
                 mock.patch.object(
-                    REVIEW,
+                    OUTPUT_MODULE,
                     "validate_output_entry_info",
                     side_effect=swapping_validate,
                 ),
@@ -3140,7 +3145,7 @@ class AggregateTests(unittest.TestCase):
 
             with (
                 mock.patch.object(
-                    REVIEW,
+                    OUTPUT_MODULE,
                     "validate_output_entry_info",
                     side_effect=swapping_validate,
                 ),
@@ -3286,6 +3291,22 @@ class InterfaceTests(unittest.TestCase):
             )
 
         self.assertEqual(completed.returncode, 2)
+        self.assertIn("Error:", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_entry_without_sibling_package_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            copy = Path(temporary) / "review_skill.py"
+            copy.write_bytes(SCRIPT.read_bytes())
+            completed = subprocess.run(
+                [sys.executable, "-B", str(copy), "static", temporary],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("skill_review", completed.stderr)
         self.assertIn("Error:", completed.stderr)
         self.assertNotIn("Traceback", completed.stderr)
 

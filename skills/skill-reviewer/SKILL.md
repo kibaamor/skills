@@ -32,8 +32,16 @@ Before manually opening any target path, locate this installed `skill-reviewer`
 directory independently of the target or current working directory, then
 resolve its bundled [review script](scripts/review_skill.py) to an absolute
 path. The script requires Python 3.10 or later; examples use `python3`, so
-substitute the host's Python 3 launcher when needed. Run the trusted script as
-the package-boundary preflight:
+substitute the host's Python 3 launcher when needed. The entry script stays a
+thin loader: the deterministic checks live in the sibling modules
+scripts/skill_review/__init__.py, scripts/skill_review/report.py,
+scripts/skill_review/frontmatter.py, scripts/skill_review/markdown_scan.py,
+scripts/skill_review/fs_safety.py, scripts/skill_review/static_review.py,
+scripts/skill_review/validate_evals.py,
+scripts/skill_review/validate_triggers.py,
+scripts/skill_review/aggregate.py, scripts/skill_review/output.py, and
+scripts/skill_review/cli.py, which it imports from its own directory. Run the
+trusted script as the package-boundary preflight:
 
 ```text
 python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py static /path/to/target-skill --pretty
