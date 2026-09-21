@@ -22,6 +22,9 @@ from .fs_safety import (
 )
 from .report import Finding, add_finding, finalize
 
+EVAL_ROOT_FIELDS = {"skill_name", "evals"}
+EVAL_CASE_FIELDS = {"id", "prompt", "expected_output", "files", "assertions"}
+
 
 def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any], int]:
     path, skill_root, path_issue = resolve_package_data_file(evals_path)
@@ -82,6 +85,17 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
         )
         return finalize("validate-evals", path, facts, findings, max_findings), 1
 
+    unknown_fields = sorted(set(data) - EVAL_ROOT_FIELDS)
+    if unknown_fields:
+        add_finding(
+            findings,
+            "warning",
+            "evals.unknown_fields",
+            path,
+            f"The eval definition has unknown field(s): {', '.join(unknown_fields)}.",
+            "Remove misspelled fields or document them in the eval definition contract.",
+        )
+
     target_skill_md = skill_root / "SKILL.md"
     target_skill_name = ""
     if is_link_like(target_skill_md):
@@ -135,7 +149,10 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
                 )
 
     skill_name = data.get("skill_name")
-    if not isinstance(skill_name, str) or not skill_name.strip():
+    normalized_skill_name = (
+        skill_name.strip() if isinstance(skill_name, str) else ""
+    )
+    if not normalized_skill_name:
         add_finding(
             findings,
             "error",
@@ -145,14 +162,14 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
             "Set skill_name to the target skill's frontmatter name.",
         )
     else:
-        facts["skill_name"] = skill_name
-        if target_skill_name and skill_name != target_skill_name:
+        facts["skill_name"] = normalized_skill_name
+        if target_skill_name and normalized_skill_name != target_skill_name:
             add_finding(
                 findings,
                 "error",
                 "evals.skill_name_mismatch",
                 path,
-                f'skill_name "{skill_name}" does not match target name "{target_skill_name}".',
+                f'skill_name "{normalized_skill_name}" does not match target name "{target_skill_name}".',
                 "Set skill_name to the name in the target SKILL.md frontmatter.",
             )
 
@@ -192,12 +209,25 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
                 "Use id, prompt, expected_output, and optional files/assertions fields.",
             )
             continue
+
+        unknown_fields = sorted(set(case) - EVAL_CASE_FIELDS)
+        if unknown_fields:
+            add_finding(
+                findings,
+                "warning",
+                "evals.unknown_fields",
+                path,
+                f"{label} has unknown field(s): {', '.join(unknown_fields)}.",
+                "Remove misspelled fields or document them in the eval case contract.",
+            )
+
         case_id = case.get("id")
-        normalized_id = (
-            str(case_id)
-            if isinstance(case_id, (str, int)) and not isinstance(case_id, bool)
-            else ""
-        )
+        if isinstance(case_id, str):
+            normalized_id = case_id.strip()
+        elif isinstance(case_id, int) and not isinstance(case_id, bool):
+            normalized_id = str(case_id)
+        else:
+            normalized_id = ""
         if not normalized_id:
             add_finding(
                 findings,

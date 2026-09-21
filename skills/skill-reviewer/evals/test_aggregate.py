@@ -24,6 +24,51 @@ from _support import (
 
 
 class AggregateTests(unittest.TestCase):
+    campaign_id = "campaign-one"
+    environment_identity = "test-environment"
+    candidate_identity = "candidate-v2"
+    baseline_identity = "baseline-v1"
+
+    def write_plan(
+        self,
+        root: Path,
+        eval_name: str,
+        grading_data: dict[str, object],
+    ) -> None:
+        path = root.parent / "evaluation-plan.json"
+        if path.exists():
+            plan = json.loads(path.read_text(encoding="utf-8"))
+        else:
+            plan = {
+                "campaign_id": self.campaign_id,
+                "environment_identity": self.environment_identity,
+                "candidate": {
+                    "name": "with_skill",
+                    "starting_package_identity": "candidate-v1",
+                },
+                "baseline": {
+                    "name": "old_skill",
+                    "package_identity": self.baseline_identity,
+                },
+                "evals": [],
+            }
+        if not any(item["directory"] == eval_name for item in plan["evals"]):
+            assertion_texts = []
+            for assertion in grading_data.get("assertion_results", []):
+                if not isinstance(assertion, dict):
+                    continue
+                text = assertion.get("text")
+                if isinstance(text, str) and text.strip() not in assertion_texts:
+                    assertion_texts.append(text.strip())
+            plan["evals"].append(
+                {
+                    "id": eval_name.removeprefix("eval-"),
+                    "directory": eval_name,
+                    "assertions": assertion_texts or ["Has result"],
+                }
+            )
+        write(path, json.dumps(plan))
+
     def write_run(
         self,
         root: Path,
@@ -33,11 +78,29 @@ class AggregateTests(unittest.TestCase):
         tokens: int,
         duration_ms: int,
     ) -> None:
+        self.write_plan(root, eval_name, grading_data)
         run = root / eval_name / configuration
         write(run / "grading.json", json.dumps(grading_data))
         write(
             run / "timing.json",
             json.dumps({"total_tokens": tokens, "duration_ms": duration_ms}),
+        )
+        package_identity = (
+            self.candidate_identity
+            if configuration == "with_skill"
+            else self.baseline_identity
+        )
+        write(
+            run / "provenance.json",
+            json.dumps(
+                {
+                    "campaign_id": self.campaign_id,
+                    "eval_id": eval_name.removeprefix("eval-"),
+                    "configuration": configuration,
+                    "package_identity": package_identity,
+                    "environment_identity": self.environment_identity,
+                }
+            ),
         )
 
     def write_complete_pair(self, root: Path) -> None:
@@ -86,7 +149,7 @@ class AggregateTests(unittest.TestCase):
 
     def test_aggregates_consistent_evidenced_results(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary) / "iteration"
             self.write_run(
                 root,
                 "eval-one",
@@ -108,10 +171,200 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertTrue(result["facts"]["complete"])
         self.assertEqual(result["facts"]["delta"]["pass_rate"], 1.0)
+        self.assertEqual(
+            result["facts"]["campaign"],
+            {
+                "id": self.campaign_id,
+                "environment_identity": self.environment_identity,
+            },
+        )
+        self.assertEqual(
+            result["facts"]["coverage"],
+            {
+                "planned": ["eval-one"],
+                "discovered": ["eval-one"],
+                "matched": ["eval-one"],
+            },
+        )
+        self.assertEqual(
+            result["facts"]["identities"],
+            {
+                "candidate": self.candidate_identity,
+                "candidate_starting": "candidate-v1",
+                "baseline": self.baseline_identity,
+                "environment": self.environment_identity,
+            },
+        )
+        self.assertEqual(len(result["facts"]["provenance"]), 2)
+        self.assertTrue(all(item["valid"] for item in result["facts"]["provenance"]))
+
+    def test_requires_a_safe_frozen_evaluation_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            self.write_complete_pair(root)
+            (root.parent / "evaluation-plan.json").unlink()
+
+            result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
+
+        self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["complete"])
+        self.assertIsNone(result["facts"]["delta"])
+        self.assertIn(
+            "aggregate.plan_invalid",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_rejects_oversized_plan_and_provenance_files(self) -> None:
+        for target in ("plan", "provenance"):
+            with self.subTest(target=target):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary) / "iteration"
+                    self.write_complete_pair(root)
+                    if target == "plan":
+                        path = root.parent / "evaluation-plan.json"
+                    else:
+                        path = root / "eval-one" / "with_skill" / "provenance.json"
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    data["padding"] = "x" * 2000
+                    oversized = json.dumps(data)
+                    write(path, oversized)
+
+                    with mock.patch.object(
+                        FS_SAFETY, "MAX_TEXT_FILE_BYTES", len(oversized) - 1
+                    ):
+                        result, status = REVIEW.aggregate(
+                            root, "with_skill", "old_skill", 100
+                        )
+
+                self.assertEqual(status, 1)
+                self.assertFalse(result["facts"]["complete"])
+                self.assertIsNone(result["facts"]["delta"])
+                expected = (
+                    "aggregate.plan_invalid"
+                    if target == "plan"
+                    else "aggregate.run_incomplete"
+                )
+                self.assertIn(expected, {item["code"] for item in result["findings"]})
+                self.assertIn("resource exceeds", json.dumps(result).lower())
+
+    def test_requires_exact_planned_eval_coverage(self) -> None:
+        for mismatch in ("missing", "extra"):
+            with self.subTest(mismatch=mismatch):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary) / "iteration"
+                    self.write_complete_pair(root)
+                    plan_path = root.parent / "evaluation-plan.json"
+                    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+                    if mismatch == "missing":
+                        plan["evals"].append(
+                            {
+                                "id": "two",
+                                "directory": "eval-two",
+                                "assertions": ["Has result"],
+                            }
+                        )
+                        write(plan_path, json.dumps(plan))
+                    else:
+                        (root / "eval-two").mkdir()
+
+                    result, status = REVIEW.aggregate(
+                        root, "with_skill", "old_skill", 100
+                    )
+
+                self.assertEqual(status, 1)
+                self.assertFalse(result["facts"]["complete"])
+                self.assertIsNone(result["facts"]["delta"])
+                self.assertIn(
+                    "aggregate.coverage_mismatch",
+                    {finding["code"] for finding in result["findings"]},
+                )
+
+    def test_requires_provenance_for_every_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            self.write_complete_pair(root)
+            (root / "eval-one" / "with_skill" / "provenance.json").unlink()
+
+            result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
+
+        self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["complete"])
+        self.assertIsNone(result["facts"]["delta"])
+        self.assertIn(
+            "aggregate.run_incomplete",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_rejects_provenance_and_plan_binding_mismatches(self) -> None:
+        mutations = {
+            "campaign": ("provenance", "campaign_id", "other-campaign"),
+            "eval": ("provenance", "eval_id", "other-eval"),
+            "configuration": ("provenance", "configuration", "with_skill"),
+            "environment": ("provenance", "environment_identity", "other-env"),
+            "baseline package": ("provenance", "package_identity", "other-package"),
+            "assertions": ("plan", "assertions", ["Other assertion"]),
+        }
+        for label, (target, field, value) in mutations.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary) / "iteration"
+                    self.write_complete_pair(root)
+                    if target == "plan":
+                        path = root.parent / "evaluation-plan.json"
+                        data = json.loads(path.read_text(encoding="utf-8"))
+                        data["evals"][0][field] = value
+                    else:
+                        path = root / "eval-one" / "old_skill" / "provenance.json"
+                        data = json.loads(path.read_text(encoding="utf-8"))
+                        data[field] = value
+                    write(path, json.dumps(data))
+
+                    result, status = REVIEW.aggregate(
+                        root, "with_skill", "old_skill", 100
+                    )
+
+                self.assertEqual(status, 1)
+                self.assertFalse(result["facts"]["complete"])
+                self.assertIsNone(result["facts"]["delta"])
+                expected = (
+                    "aggregate.assertion_plan_mismatch"
+                    if target == "plan"
+                    else "aggregate.provenance_mismatch"
+                )
+                self.assertIn(expected, {item["code"] for item in result["findings"]})
+
+    def test_candidate_package_identity_is_consistent_within_iteration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            self.write_complete_pair(root)
+            for configuration, passed in (("with_skill", True), ("old_skill", False)):
+                self.write_run(
+                    root,
+                    "eval-two",
+                    configuration,
+                    grading([("Has result", passed, "Retained evidence")]),
+                    1000,
+                    2000,
+                )
+            path = root / "eval-two" / "with_skill" / "provenance.json"
+            provenance = json.loads(path.read_text(encoding="utf-8"))
+            provenance["package_identity"] = "candidate-v3"
+            write(path, json.dumps(provenance))
+
+            result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
+
+        self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["complete"])
+        self.assertIsNone(result["facts"]["delta"])
+        self.assertNotIn("with_skill", result["facts"]["run_summary"])
+        self.assertIn(
+            "aggregate.provenance_mismatch",
+            {finding["code"] for finding in result["findings"]},
+        )
 
     def test_reports_per_assertion_outcomes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary) / "iteration"
             self.write_run(
                 root,
                 "eval-one",
@@ -187,7 +440,7 @@ class AggregateTests(unittest.TestCase):
 
     def test_aggregate_ignores_unselected_configuration_directories(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary) / "iteration"
             self.write_complete_pair(root)
             (root / "eval-one" / "unselected").mkdir()
             result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
@@ -199,7 +452,7 @@ class AggregateTests(unittest.TestCase):
 
     def test_aggregate_text_output_includes_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary) / "iteration"
             self.write_complete_pair(root)
             result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
             rendered = REVIEW.render_text(result)
@@ -216,7 +469,7 @@ class AggregateTests(unittest.TestCase):
 
     def test_json_output_safely_escapes_unpaired_surrogates(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary) / "iteration"
             evidence = "Evidence \ud800"
             self.write_run(
                 root,
@@ -273,9 +526,7 @@ class AggregateTests(unittest.TestCase):
             expected_subject = str(root.resolve())
             junction_or_fail(self, alias, root)
             try:
-                result, status = REVIEW.aggregate(
-                    alias, "with_skill", "old_skill", 100
-                )
+                result, status = REVIEW.aggregate(alias, "with_skill", "old_skill", 100)
             finally:
                 if os.path.lexists(alias):
                     os.rmdir(alias)
@@ -288,7 +539,7 @@ class AggregateTests(unittest.TestCase):
 
     def test_rejects_evidence_free_or_inconsistent_grading(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary) / "iteration"
             invalid = {
                 "assertion_results": [
                     {"text": "Has result", "passed": True, "evidence": ""}
@@ -316,16 +567,17 @@ class AggregateTests(unittest.TestCase):
 
     def test_rejects_oversized_run_data_without_unbounded_read(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            candidate = root / "eval-one" / "with_skill"
-            candidate.mkdir(parents=True)
+            root = Path(temporary) / "iteration"
             candidate_grading = grading([("Has result", True, "Found output.json")])
             candidate_grading["padding"] = "x" * 2000
             candidate_grading_text = json.dumps(candidate_grading)
-            write(candidate / "grading.json", candidate_grading_text)
-            write(
-                candidate / "timing.json",
-                json.dumps({"total_tokens": 1200, "duration_ms": 3000}),
+            self.write_run(
+                root,
+                "eval-one",
+                "with_skill",
+                candidate_grading,
+                1200,
+                3000,
             )
             self.write_run(
                 root,
@@ -351,7 +603,7 @@ class AggregateTests(unittest.TestCase):
 
     def test_rejects_mismatched_paired_assertion_texts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary) / "iteration"
             self.write_run(
                 root,
                 "eval-one",
@@ -384,7 +636,7 @@ class AggregateTests(unittest.TestCase):
 
     def test_rejects_duplicate_assertions_within_a_run(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary) / "iteration"
             duplicate = grading(
                 [
                     ("Has result", True, "Found output.json"),
@@ -412,7 +664,7 @@ class AggregateTests(unittest.TestCase):
 
     def test_huge_numeric_value_is_a_bounded_aggregate_error(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary) / "iteration"
             self.write_run(
                 root,
                 "eval-one",
@@ -452,7 +704,7 @@ class AggregateTests(unittest.TestCase):
 
     def test_aggregates_multiple_large_finite_values_without_overflow(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary) / "iteration"
             for eval_name in ("eval-one", "eval-two"):
                 self.write_run(
                     root,
@@ -493,9 +745,7 @@ class AggregateTests(unittest.TestCase):
             )
             linked_config = root / "eval-one" / "with_skill"
             linked_config.parent.mkdir(parents=True)
-            symlink_or_skip(
-                self, linked_config, external, target_is_directory=True
-            )
+            symlink_or_skip(self, linked_config, external, target_is_directory=True)
             self.write_run(
                 root,
                 "eval-one",
@@ -586,9 +836,7 @@ class AggregateTests(unittest.TestCase):
                     900,
                     2000,
                 )
-                result, status = REVIEW.aggregate(
-                    root, "with_skill", "old_skill", 100
-                )
+                result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
             finally:
                 if os.path.lexists(linked_config):
                     os.rmdir(linked_config)
@@ -634,9 +882,7 @@ class AggregateTests(unittest.TestCase):
             link = root / "eval-one"
             junction_or_fail(self, link, external)
             try:
-                result, status = REVIEW.aggregate(
-                    root, "with_skill", "old_skill", 100
-                )
+                result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
             finally:
                 if os.path.lexists(link):
                     os.rmdir(link)
@@ -654,9 +900,7 @@ class AggregateTests(unittest.TestCase):
         self.assertFalse(result["facts"]["complete"])
         self.assertNotIn("424242", json.dumps(result))
 
-    @unittest.skipUnless(
-        os.name == "posix", "symbolic-link output test is POSIX-only"
-    )
+    @unittest.skipUnless(os.name == "posix", "symbolic-link output test is POSIX-only")
     def test_output_rejects_final_symlink_without_touching_target(self) -> None:
         for force_arguments in ((), ("--force",)):
             with self.subTest(force=bool(force_arguments)):
@@ -693,9 +937,7 @@ class AggregateTests(unittest.TestCase):
                 )
                 self.assertNotIn("Traceback", completed.stderr)
 
-    @unittest.skipUnless(
-        os.name == "posix", "symbolic-link output test is POSIX-only"
-    )
+    @unittest.skipUnless(os.name == "posix", "symbolic-link output test is POSIX-only")
     def test_output_rejects_symlinked_parent_without_writing_outside(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temporary_root = Path(temporary)

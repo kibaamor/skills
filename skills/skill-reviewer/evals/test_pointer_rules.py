@@ -184,8 +184,9 @@ class StaticReviewTests(unittest.TestCase):
             )
             write(first, "# First\n")
             write(second, "# Second\n")
-            expected_bytes = (root / "SKILL.md").stat().st_size + first.stat().st_size
-            with mock.patch.object(STATIC_REVIEW_MODULE, "MAX_RESOURCE_ENTRIES", 1):
+            skill_bytes = (root / "SKILL.md").stat().st_size
+            total_bytes = skill_bytes + first.stat().st_size + second.stat().st_size
+            with mock.patch.object(FS_SAFETY, "MAX_RESOURCE_ENTRIES", 1):
                 result, status = REVIEW.static_review(root, 100)
 
         self.assertEqual(status, 1)
@@ -194,7 +195,9 @@ class StaticReviewTests(unittest.TestCase):
             "package.resource_entry_limit",
             {finding["code"] for finding in result["findings"]},
         )
-        self.assertEqual(result["facts"]["text_bytes_read"], expected_bytes)
+        self.assertEqual(result["facts"]["package_entries_scanned"], 1)
+        self.assertGreaterEqual(result["facts"]["text_bytes_read"], skill_bytes)
+        self.assertLess(result["facts"]["text_bytes_read"], total_bytes)
 
     def test_linked_package_root_companion_is_not_read(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

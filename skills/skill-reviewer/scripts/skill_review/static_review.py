@@ -122,8 +122,12 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
         "description_characters": 0,
         "skill_md_lines": 0,
         "resource_files": {},
+        "package_files": 0,
+        "package_entries_scanned": 0,
         "resource_entries_scanned": 0,
+        "package_inventory_complete": False,
         "resource_inventory_complete": False,
+        "resource_inventory_scope": "entire_package",
         "text_bytes_read": 0,
         "text_inspection_complete": False,
         "limits": {
@@ -313,15 +317,43 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             "Check whether branch-specific detail belongs behind conditioned references.",
         )
 
-    all_resource_files: dict[str, list[Path]] = {}
     inventory_issues: list[InventoryIssue] = []
     inventory_state = InventoryState()
+    package_files = iter_files(root, ".", inventory_issues, inventory_state)
+    all_resource_files: dict[str, list[Path]] = {}
     for directory in ("references", "scripts", "assets", "evals"):
-        files = iter_files(root, directory, inventory_issues, inventory_state)
+        base = root / directory
+        try:
+            base_info = os.lstat(base)
+        except OSError:
+            base_info = None
+        if base_info is not None and stat.S_ISREG(base_info.st_mode):
+            inventory_state.complete = False
+            inventory_issues.append(
+                InventoryIssue(
+                    base,
+                    "package.resource_special_file",
+                    "Expected a resource directory but found a regular file.",
+                )
+            )
+            files = []
+        else:
+            files = [
+                path
+                for path in package_files
+                if (path == base or base in path.parents)
+                and "__pycache__" not in path.relative_to(base).parts
+                and path.suffix.lower() not in {".pyc", ".pyo"}
+            ]
         all_resource_files[directory] = files
         facts["resource_files"][directory] = len(files)
 
+    facts["package_files"] = sum(
+        not is_link_like(path) for path in package_files
+    )
+    facts["package_entries_scanned"] = inventory_state.entries_scanned
     facts["resource_entries_scanned"] = inventory_state.entries_scanned
+    facts["package_inventory_complete"] = inventory_state.complete
     facts["resource_inventory_complete"] = inventory_state.complete
     for issue in inventory_issues:
         add_finding(
@@ -335,11 +367,13 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
 
     instruction_files = [skill_md] + [
         path
-        for path in all_resource_files["references"]
-        if not is_link_like(path) and path.suffix.lower() in {".md", ".txt"}
+        for path in package_files
+        if path != skill_md
+        and not is_link_like(path)
+        and path.suffix.lower() in {".md", ".txt"}
     ]
     file_texts: dict[Path, str] = {skill_md: text}
-    text_inspection_complete = True
+    text_inspection_complete = inventory_state.complete
     for path in instruction_files[1:]:
         try:
             file_texts[path] = read_bounded_regular_utf8(root, path, text_budget)
@@ -347,8 +381,6 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             text_inspection_complete = False
             add_text_read_error(findings, path, exc, reported_limits)
 
-    attempted_companions: set[Path] = set()
-    companion_files_attempted = 0
     mentioned: set[Path] = set()
     reachable_references: set[Path] = set()
     queue: deque[Path] = deque([skill_md])
@@ -437,45 +469,16 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                     line_number(source_text, source_path),
                 )
                 continue
-            candidate_path = Path(os.path.abspath(candidate))
-            is_root_companion = (
-                required_pointer
-                and resolved.exists()
-                and candidate_path.parent == root
-                and candidate_path.suffix.lower() in {".md", ".txt"}
-            )
-            should_read_companion = is_root_companion and (
-                redirect is not None or resolved not in file_texts
-            )
-            if should_read_companion and candidate_path not in attempted_companions:
-                attempted_companions.add(candidate_path)
-                if companion_files_attempted >= MAX_RESOURCE_ENTRIES:
-                    text_inspection_complete = False
-                    limit_code = "package.resource_entry_limit"
-                    if limit_code not in reported_limits:
-                        reported_limits.add(limit_code)
-                        add_finding(
-                            findings,
-                            "error",
-                            limit_code,
-                            candidate_path,
-                            "Companion instruction traversal stopped after "
-                            f"{MAX_RESOURCE_ENTRIES} files.",
-                            "Consolidate root companion documents or remove "
-                            "unneeded pointers.",
-                        )
-                else:
-                    companion_files_attempted += 1
-                    try:
-                        file_texts[resolved] = read_bounded_regular_utf8(
-                            root, candidate_path, text_budget
-                        )
-                    except TextReadError as exc:
-                        text_inspection_complete = False
-                        add_text_read_error(
-                            findings, candidate_path, exc, reported_limits
-                        )
             if redirect is not None:
+                text_inspection_complete = False
+                add_finding(
+                    findings,
+                    "error",
+                    "package.resource_changed",
+                    candidate,
+                    "A referenced package path became a symbolic link or reparse point after inventory.",
+                    "Replace it with an ordinary package-local file and rerun the review.",
+                )
                 continue
             mentioned.add(resolved)
             if not resolved.exists() and required_pointer:

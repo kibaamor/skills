@@ -303,27 +303,19 @@ def iter_files(
                             )
                         continue
 
-                    relative_parts = path.relative_to(base).parts
-                    ignored = (
-                        "__pycache__" in relative_parts
-                        or path.suffix.lower() in {".pyc", ".pyo"}
-                    )
                     if stat.S_ISLNK(entry_info.st_mode) or is_reparse_stat(entry_info):
-                        if not ignored:
-                            state.complete = False
-                            discovered.append(path)
-                            if issues is not None:
-                                issues.append(
-                                    InventoryIssue(
-                                        path,
-                                        "package.resource_symlink",
-                                        "A package resource is a symbolic link or reparse point and was not inspected.",
-                                    )
+                        state.complete = False
+                        discovered.append(path)
+                        if issues is not None:
+                            issues.append(
+                                InventoryIssue(
+                                    path,
+                                    "package.resource_symlink",
+                                    "A package resource is a symbolic link or reparse point and was not inspected.",
                                 )
+                            )
                         continue
                     if stat.S_ISDIR(entry_info.st_mode):
-                        if ignored:
-                            continue
                         child_depth = depth + 1
                         if child_depth > MAX_RESOURCE_DEPTH:
                             state.complete = False
@@ -340,8 +332,7 @@ def iter_files(
                         pending.append((path, child_depth))
                         continue
                     if stat.S_ISREG(entry_info.st_mode):
-                        if not ignored:
-                            discovered.append(path)
+                        discovered.append(path)
                         continue
                     state.complete = False
                     if issues is not None:

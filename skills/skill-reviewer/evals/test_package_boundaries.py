@@ -26,6 +26,62 @@ from _support import (
 
 
 class StaticReviewTests(unittest.TestCase):
+    def test_inventory_reads_instruction_text_outside_standard_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "custom-instructions-skill"
+            skill_md = root / "SKILL.md"
+            grader = root / "agents" / "grader.md"
+            binary = root / "viewer" / "artifact.bin"
+            write(skill_md, skill_text("custom-instructions-skill"))
+            write(grader, "# Grader\n\nAssess the output evidence.\n")
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"\xff\xfe\x00\x01")
+            expected_text_bytes = skill_md.stat().st_size + grader.stat().st_size
+
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 0)
+        self.assertTrue(result["facts"]["package_inventory_complete"])
+        self.assertTrue(result["facts"]["resource_inventory_complete"])
+        self.assertEqual(result["facts"]["resource_inventory_scope"], "entire_package")
+        self.assertEqual(result["facts"]["package_entries_scanned"], 5)
+        self.assertEqual(result["facts"]["resource_entries_scanned"], 5)
+        self.assertEqual(result["facts"]["package_files"], 3)
+        self.assertEqual(
+            result["facts"]["resource_files"],
+            {"references": 0, "scripts": 0, "assets": 0, "evals": 0},
+        )
+        self.assertTrue(result["facts"]["text_inspection_complete"])
+        self.assertEqual(result["facts"]["text_bytes_read"], expected_text_bytes)
+
+    def test_unknown_top_level_link_makes_package_inventory_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            root = temporary_root / "unknown-link-skill"
+            skill_md = root / "SKILL.md"
+            outside = temporary_root / "outside.md"
+            link = root / "custom-guide.md"
+            write(skill_md, skill_text("unknown-link-skill"))
+            write(outside, "EXTERNAL_SENTINEL [missing](missing.md)\n")
+            symlink_or_skip(self, link, outside)
+            skill_bytes = skill_md.stat().st_size
+
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["package_inventory_complete"])
+        self.assertFalse(result["facts"]["resource_inventory_complete"])
+        self.assertEqual(result["facts"]["text_bytes_read"], skill_bytes)
+        self.assertIn(
+            "package.resource_symlink",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertNotIn("EXTERNAL_SENTINEL", json.dumps(result))
+        self.assertNotIn(
+            "pointer.target_missing",
+            {finding["code"] for finding in result["findings"]},
+        )
+
     def test_linked_agents_directory_is_not_read(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temporary_root = Path(temporary)
@@ -45,6 +101,7 @@ class StaticReviewTests(unittest.TestCase):
             result, _ = REVIEW.static_review(root, 100)
 
         codes = {finding["code"] for finding in result["findings"]}
+        self.assertFalse(result["facts"]["package_inventory_complete"])
         self.assertIn("package.metadata_symlink", codes)
         self.assertNotIn("metadata.default_prompt_missing_skill", codes)
 
@@ -123,11 +180,16 @@ class StaticReviewTests(unittest.TestCase):
                 ),
             )
             write(root / "references" / "guide.md", "# Guide\n")
+            cache = root / "scripts" / "__pycache__" / "tool.pyc"
+            cache.parent.mkdir(parents=True)
+            cache.write_bytes(b"\xff\xfe\x00\x01")
 
             result, status = REVIEW.static_review(root, 100)
 
         self.assertEqual(status, 0)
         self.assertEqual(result["facts"]["resource_files"]["references"], 1)
+        self.assertEqual(result["facts"]["resource_files"]["scripts"], 0)
+        self.assertEqual(result["facts"]["package_files"], 3)
         self.assertTrue(result["facts"]["resource_inventory_complete"])
 
     @unittest.skipUnless(os.name == "posix", "symbolic links require POSIX")
@@ -257,6 +319,7 @@ class StaticReviewTests(unittest.TestCase):
             "references/hang.md",
             "scripts/hang.py",
             "agents/openai.yaml",
+            "custom/hang.bin",
         ):
             with self.subTest(relative=relative):
                 with tempfile.TemporaryDirectory() as temporary:
@@ -293,14 +356,14 @@ class StaticReviewTests(unittest.TestCase):
                 )
                 self.assertNotIn("Traceback", completed.stderr)
 
-    def test_resource_entry_budget_stops_unbounded_inventory(self) -> None:
+    def test_package_entry_budget_includes_unknown_top_level_directories(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "entry-budget-skill"
             write(root / "SKILL.md", skill_text("entry-budget-skill"))
             for index in range(3):
-                write(root / "assets" / f"asset-{index}.bin", "x")
+                write(root / "custom" / f"entry-{index}.bin", "x")
             with mock.patch.object(
-                FS_SAFETY, "MAX_RESOURCE_ENTRIES", 2
+                FS_SAFETY, "MAX_RESOURCE_ENTRIES", 3
             ):
                 result, status = REVIEW.static_review(root, 100)
 
@@ -309,7 +372,11 @@ class StaticReviewTests(unittest.TestCase):
             "package.resource_entry_limit",
             {finding["code"] for finding in result["findings"]},
         )
+        self.assertEqual(result["facts"]["package_entries_scanned"], 3)
+        self.assertEqual(result["facts"]["resource_entries_scanned"], 3)
+        self.assertFalse(result["facts"]["package_inventory_complete"])
         self.assertFalse(result["facts"]["resource_inventory_complete"])
+        self.assertFalse(result["facts"]["text_inspection_complete"])
 
     def test_resource_depth_budget_stops_deep_inventory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -437,6 +504,7 @@ class StaticReviewTests(unittest.TestCase):
 
         codes = {finding["code"] for finding in result["findings"]}
         self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["package_inventory_complete"])
         self.assertTrue(
             {"package.metadata_symlink", "package.metadata_outside"}.issubset(codes)
         )

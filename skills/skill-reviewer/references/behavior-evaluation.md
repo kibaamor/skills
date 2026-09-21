@@ -25,6 +25,11 @@ Store definitions in the target skill's `evals/evals.json`:
 }
 ```
 
+The root accepts only `skill_name` and `evals`; a case accepts only `id`,
+`prompt`, `expected_output`, `files`, and `assertions`. The validator reports
+unknown fields so misspellings and incompatible eval dialects are visible.
+String names and IDs are compared after trimming surrounding whitespace.
+
 Validate it before running:
 
 ```text
@@ -50,6 +55,38 @@ Changing an evaluation input, environment, assertion, or bar starts a new
 campaign. The candidate revision is the measured variable, so record its exact
 identity in each iteration instead of rewriting the plan.
 
+The aggregator validates this minimum machine-readable subset and permits
+additional frozen fields for prompts, inputs, output contracts, bars, and the
+iteration limit:
+
+```json
+{
+  "campaign_id": "review-2026-09-21-a",
+  "environment_identity": "client/model/harness identity",
+  "candidate": {
+    "name": "with_skill",
+    "starting_package_identity": "revision or digest"
+  },
+  "baseline": {
+    "name": "old_skill",
+    "package_identity": "revision or digest"
+  },
+  "evals": [
+    {
+      "id": "descriptive-id",
+      "directory": "eval-descriptive-id",
+      "assertions": ["An objective frozen assertion"]
+    }
+  ]
+}
+```
+
+All shown strings must be non-empty. Configuration names must equal the
+aggregate CLI arguments. Eval IDs and directories must each be unique;
+directories are single path components beginning with `eval-`; assertions are
+non-empty and unique after trimming. The planned directory set must exactly
+match the iteration's discovered `eval-*` directories.
+
 ## Bind evidence to the reviewed package
 
 Attach the configuration identity, exact applicable package identity, frozen
@@ -57,6 +94,24 @@ campaign identity, and execution-environment identity to each configuration's
 retained provenance. If any required identity cannot be established, report
 that limitation and do not present the run as regression evidence for another
 version.
+
+Write this `provenance.json` beside each configuration's grading and timing
+files:
+
+```json
+{
+  "campaign_id": "review-2026-09-21-a",
+  "eval_id": "descriptive-id",
+  "configuration": "with_skill",
+  "package_identity": "exact revision or digest for this run",
+  "environment_identity": "client/model/harness identity"
+}
+```
+
+The campaign, eval, configuration, and environment values must bind to the
+plan and directory being aggregated. Baseline package identity must equal the
+frozen plan value. Candidate package identity may change between iterations,
+but it must be identical across every candidate run in one iteration.
 
 ## Use an isolated paired comparison
 
@@ -151,11 +206,13 @@ After every run has both `grading.json` and `timing.json`, run:
 python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py aggregate /path/to/iteration-N --candidate with_skill --baseline old_skill --pretty --output /path/to/iteration-N/benchmark.json
 ```
 
-Before aggregation, compare the discovered `eval-*` directories, assertion
-texts, and run provenance with `evaluation-plan.json`. The aggregator checks
-each discovered pair and requires matching assertion texts within that pair;
-it does not prove full-suite coverage, cross-iteration consistency, or package
-identity. Report those checks separately.
+The aggregator compares the discovered `eval-*` directories, assertion texts,
+and run provenance with `evaluation-plan.json` fail-closed. It requires the
+plan at the iteration's parent, exact full-suite coverage, both configurations
+for every eval, frozen assertion sets, valid provenance, one candidate package
+identity within the iteration, and the frozen baseline and environment
+identities. Any mismatch makes `facts.complete` false and suppresses
+`facts.delta`.
 
 The script gives each run equal weight and reports the number of runs, mean,
 and standard deviation for assertion pass rate, time, and tokens. Standard
@@ -182,6 +239,12 @@ contribute. When `facts.complete` is false, the analysis may be partial and is
 not regression evidence. These are diagnostic assertion-instance counts, not a
 new quality score; `both_fail` and `baseline_only` do not become findings unless
 the frozen success bar makes them material.
+
+Use `facts.coverage`, `facts.provenance`, and `facts.identities` to retain the
+validated campaign bindings with the benchmark. Aggregation proves consistency
+of this iteration's declared identities; it does not independently derive a
+package digest, prove that a declared identity is truthful, or establish
+cross-iteration consistency.
 
 This is deterministic classification, not an automatic eval-quality verdict.
 Use the frozen success bar, retained outputs, and transcripts to judge assertion

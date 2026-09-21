@@ -133,11 +133,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     aggregate_parser = subparsers.add_parser(
         "aggregate",
-        help="Aggregate paired grading.json and timing.json run data.",
+        help="Validate and aggregate a frozen paired evaluation campaign.",
         epilog=EXIT_CODES,
     )
     aggregate_parser.add_argument(
-        "iteration", help="Path containing eval-* run directories."
+        "iteration",
+        help=(
+            "Path containing eval-* run directories; its parent must contain "
+            "evaluation-plan.json and each configuration must contain "
+            "grading.json, timing.json, and provenance.json."
+        ),
     )
     aggregate_parser.add_argument(
         "--candidate",

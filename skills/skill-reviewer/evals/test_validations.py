@@ -194,6 +194,101 @@ class EvalsValidationTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(result["facts"]["target_skill_name"], "right-skill")
 
+    def test_canonicalizes_skill_name_before_comparison(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "right-skill"
+            write(root / "SKILL.md", skill_text("right-skill"))
+            evals_path = root / "evals" / "evals.json"
+            write(
+                evals_path,
+                json.dumps(
+                    {
+                        "skill_name": "  right-skill  ",
+                        "evals": [
+                            {
+                                "id": "one",
+                                "prompt": "Complete this realistic task.",
+                                "expected_output": "An observable result.",
+                            },
+                            {
+                                "id": "two",
+                                "prompt": "Handle this realistic edge case.",
+                                "expected_output": "An observable safe response.",
+                            },
+                        ],
+                    }
+                ),
+            )
+            result, status = REVIEW.validate_evals(evals_path, 100)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(result["facts"]["skill_name"], "right-skill")
+
+    def test_rejects_blank_trimmed_duplicate_and_boolean_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "right-skill"
+            write(root / "SKILL.md", skill_text("right-skill"))
+            cases = []
+            for case_id in ("   ", "duplicate", " duplicate ", 7, True):
+                cases.append(
+                    {
+                        "id": case_id,
+                        "prompt": "Complete this realistic task.",
+                        "expected_output": "An observable result.",
+                    }
+                )
+            evals_path = root / "evals" / "evals.json"
+            write(
+                evals_path,
+                json.dumps({"skill_name": "right-skill", "evals": cases}),
+            )
+            result, status = REVIEW.validate_evals(evals_path, 100)
+
+        self.assertEqual(status, 1)
+        codes = [finding["code"] for finding in result["findings"]]
+        self.assertEqual(codes.count("evals.id_missing"), 2)
+        self.assertEqual(codes.count("evals.id_duplicate"), 1)
+
+    def test_unknown_root_and_case_fields_are_nonfatal_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "right-skill"
+            write(root / "SKILL.md", skill_text("right-skill"))
+            evals_path = root / "evals" / "evals.json"
+            write(
+                evals_path,
+                json.dumps(
+                    {
+                        "skill_name": "right-skill",
+                        "metadata": {},
+                        "evals": [
+                            {
+                                "id": "one",
+                                "prompt": "Complete this realistic task.",
+                                "expected_output": "An observable result.",
+                                "expectations": ["Unsupported dialect field"],
+                            },
+                            {
+                                "id": "two",
+                                "prompt": "Handle this realistic edge case.",
+                                "expected_output": "An observable safe response.",
+                            },
+                        ],
+                    }
+                ),
+            )
+            result, status = REVIEW.validate_evals(evals_path, 100)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(result["summary"]["warnings"], 2)
+        unknown_findings = [
+            finding
+            for finding in result["findings"]
+            if finding["code"] == "evals.unknown_fields"
+        ]
+        self.assertEqual(len(unknown_findings), 2)
+        self.assertIn("metadata", unknown_findings[0]["message"])
+        self.assertIn("expectations", unknown_findings[1]["message"])
+
     def test_rejects_fixture_paths_outside_skill_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             temporary_root = Path(temporary)

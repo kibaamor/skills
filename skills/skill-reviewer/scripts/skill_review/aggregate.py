@@ -45,34 +45,127 @@ def metric(values: list[float]) -> dict[str, Any]:
     }
 
 
+def nonempty_string(data: dict[str, Any], field: str, label: str) -> str:
+    value = data.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label}.{field} must be a non-empty string")
+    return value
+
+
+def parse_plan(
+    workspace: Path,
+    candidate: str,
+    baseline: str,
+    text_budget: TextReadBudget,
+) -> dict[str, Any]:
+    path = workspace / "evaluation-plan.json"
+    try:
+        plan = json.loads(read_bounded_regular_utf8(workspace, path, text_budget))
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"evaluation-plan.json is missing or unsafe: {exc}") from exc
+    if not isinstance(plan, dict):
+        raise ValueError("evaluation-plan.json must be an object")
+
+    campaign_id = nonempty_string(plan, "campaign_id", "evaluation-plan.json")
+    environment = nonempty_string(plan, "environment_identity", "evaluation-plan.json")
+    candidate_plan = plan.get("candidate")
+    baseline_plan = plan.get("baseline")
+    if not isinstance(candidate_plan, dict):
+        raise ValueError("evaluation-plan.json.candidate must be an object")
+    if not isinstance(baseline_plan, dict):
+        raise ValueError("evaluation-plan.json.baseline must be an object")
+    candidate_name = nonempty_string(candidate_plan, "name", "candidate")
+    candidate_starting = nonempty_string(
+        candidate_plan, "starting_package_identity", "candidate"
+    )
+    baseline_name = nonempty_string(baseline_plan, "name", "baseline")
+    baseline_identity = nonempty_string(baseline_plan, "package_identity", "baseline")
+    if candidate_name != candidate or baseline_name != baseline:
+        raise ValueError(
+            "plan configuration names must match --candidate and --baseline"
+        )
+
+    evals = plan.get("evals")
+    if not isinstance(evals, list) or not evals:
+        raise ValueError("evaluation-plan.json.evals must be a non-empty array")
+    by_directory: dict[str, dict[str, Any]] = {}
+    eval_ids: set[str] = set()
+    for index, item in enumerate(evals):
+        label = f"evaluation-plan.json.evals[{index}]"
+        if not isinstance(item, dict):
+            raise ValueError(f"{label} must be an object")
+        eval_id = nonempty_string(item, "id", label)
+        directory = nonempty_string(item, "directory", label)
+        if (
+            not directory.startswith("eval-")
+            or Path(directory).name != directory
+            or "/" in directory
+            or "\\" in directory
+        ):
+            raise ValueError(f"{label}.directory must be one eval-* directory name")
+        if eval_id in eval_ids:
+            raise ValueError(f'{label}.id duplicates "{eval_id}"')
+        if directory in by_directory:
+            raise ValueError(f'{label}.directory duplicates "{directory}"')
+        assertions = item.get("assertions")
+        if not isinstance(assertions, list) or not assertions:
+            raise ValueError(f"{label}.assertions must be a non-empty array")
+        normalized_assertions: set[str] = set()
+        for assertion_index, assertion in enumerate(assertions):
+            if not isinstance(assertion, str) or not assertion.strip():
+                raise ValueError(
+                    f"{label}.assertions[{assertion_index}] must be a non-empty string"
+                )
+            normalized = assertion.strip()
+            if normalized in normalized_assertions:
+                raise ValueError(f'{label}.assertions duplicates "{normalized}"')
+            normalized_assertions.add(normalized)
+        eval_ids.add(eval_id)
+        by_directory[directory] = {
+            "id": eval_id,
+            "assertions": normalized_assertions,
+        }
+    return {
+        "campaign_id": campaign_id,
+        "environment_identity": environment,
+        "candidate_starting_identity": candidate_starting,
+        "baseline_identity": baseline_identity,
+        "evals": by_directory,
+    }
+
+
 def parse_run(
     root: Path, config_dir: Path, text_budget: TextReadBudget
 ) -> dict[str, Any]:
     grading_path = config_dir / "grading.json"
     timing_path = config_dir / "timing.json"
+    provenance_path = config_dir / "provenance.json"
     redirected = [
         path.name
-        for path in (grading_path, timing_path)
+        for path in (grading_path, timing_path, provenance_path)
         if first_link_like_component(root, path) is not None
     ]
     if redirected:
         raise ValueError(
             f"{', '.join(redirected)} must not be symbolic links or reparse points"
         )
-    missing = [path.name for path in (grading_path, timing_path) if not path.is_file()]
+    missing = [
+        path.name
+        for path in (grading_path, timing_path, provenance_path)
+        if not path.is_file()
+    ]
     if missing:
         raise ValueError(f"missing {', '.join(missing)}")
     try:
-        for path in (grading_path, timing_path):
+        for path in (grading_path, timing_path, provenance_path):
             resolve_within(root, path, strict=True)
     except (OSError, RuntimeError, ValueError) as exc:
         raise ValueError("run data must resolve inside the iteration root") from exc
     try:
-        grading = json.loads(
-            read_bounded_regular_utf8(root, grading_path, text_budget)
-        )
-        timing = json.loads(
-            read_bounded_regular_utf8(root, timing_path, text_budget)
+        grading = json.loads(read_bounded_regular_utf8(root, grading_path, text_budget))
+        timing = json.loads(read_bounded_regular_utf8(root, timing_path, text_budget))
+        provenance = json.loads(
+            read_bounded_regular_utf8(root, provenance_path, text_budget)
         )
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"invalid JSON: {exc}") from exc
@@ -80,10 +173,22 @@ def parse_run(
         raise ValueError("grading.json must be an object")
     if not isinstance(timing, dict):
         raise ValueError("timing.json must be an object")
+    if not isinstance(provenance, dict):
+        raise ValueError("provenance.json must be an object")
+    for field in (
+        "campaign_id",
+        "eval_id",
+        "configuration",
+        "package_identity",
+        "environment_identity",
+    ):
+        nonempty_string(provenance, field, "provenance.json")
 
     assertion_results = grading.get("assertion_results")
     if not isinstance(assertion_results, list) or not assertion_results:
-        raise ValueError("grading.json must contain a non-empty assertion_results array")
+        raise ValueError(
+            "grading.json must contain a non-empty assertion_results array"
+        )
     passed = 0
     assertion_texts: set[str] = set()
     assertions: dict[str, dict[str, Any]] = {}
@@ -99,9 +204,10 @@ def parse_run(
         assertion_texts.add(normalized_text)
         if not isinstance(assertion.get("passed"), bool):
             raise ValueError(f"{label}.passed must be a boolean")
-        if not isinstance(assertion.get("evidence"), str) or not assertion[
-            "evidence"
-        ].strip():
+        if (
+            not isinstance(assertion.get("evidence"), str)
+            or not assertion["evidence"].strip()
+        ):
             raise ValueError(f"{label}.evidence must be a non-empty string")
         assertions[normalized_text] = {
             "passed": assertion["passed"],
@@ -116,7 +222,11 @@ def parse_run(
     expected_counts = {"passed": passed, "failed": total - passed, "total": total}
     for key, expected in expected_counts.items():
         actual = summary.get(key)
-        if isinstance(actual, bool) or not isinstance(actual, int) or actual != expected:
+        if (
+            isinstance(actual, bool)
+            or not isinstance(actual, int)
+            or actual != expected
+        ):
             raise ValueError(f"summary.{key} must equal {expected}")
     pass_rate = numeric(summary.get("pass_rate"), "summary.pass_rate")
     expected_pass_rate = passed / total
@@ -128,6 +238,7 @@ def parse_run(
         "tokens": numeric(timing.get("total_tokens"), "total_tokens"),
         "assertion_texts": assertion_texts,
         "assertions": assertions,
+        "provenance": provenance,
     }
 
 
@@ -142,15 +253,39 @@ def aggregate(
         raise ValueError(
             f'Iteration must be an existing directory; received "{iteration}".'
         )
-    if not candidate or not baseline or candidate == baseline:
-        raise ValueError("Candidate and baseline must be distinct non-empty directory names.")
+    if (
+        not isinstance(candidate, str)
+        or not candidate.strip()
+        or not isinstance(baseline, str)
+        or not baseline.strip()
+        or candidate == baseline
+    ):
+        raise ValueError(
+            "Candidate and baseline must be distinct non-empty directory names."
+        )
 
     findings: list[Finding] = []
     text_budget = TextReadBudget()
+    workspace = root.parent
+    plan: dict[str, Any] | None
+    try:
+        plan = parse_plan(workspace, candidate, baseline, text_budget)
+    except ValueError as exc:
+        plan = None
+        add_finding(
+            findings,
+            "error",
+            "aggregate.plan_invalid",
+            workspace / "evaluation-plan.json",
+            f"The frozen evaluation plan is missing or malformed: {exc}.",
+            "Add a safe evaluation-plan.json with the frozen campaign contract.",
+        )
     values: dict[str, dict[str, list[float]]] = defaultdict(
         lambda: {"pass_rate": [], "time_seconds": [], "tokens": []}
     )
     runs: list[dict[str, Any]] = []
+    provenance_facts: list[dict[str, Any]] = []
+    candidate_identities: set[str] = set()
     assertion_analysis: list[dict[str, Any]] = []
     assertion_summary = {
         "candidate_only": 0,
@@ -159,12 +294,30 @@ def aggregate(
         "both_fail": 0,
     }
     eval_dirs = sorted(
-        path
-        for path in root.glob("eval-*")
-        if is_link_like(path) or path.is_dir()
+        path for path in root.glob("eval-*") if is_link_like(path) or path.is_dir()
     )
-    if not eval_dirs:
-        raise ValueError(f"No eval-* directories were found under {root}.")
+    discovered_directories = {path.name for path in eval_dirs}
+    planned_directories = set(plan["evals"]) if plan is not None else set()
+    if plan is not None and discovered_directories != planned_directories:
+        missing = sorted(planned_directories - discovered_directories)
+        extra = sorted(discovered_directories - planned_directories)
+        add_finding(
+            findings,
+            "error",
+            "aggregate.coverage_mismatch",
+            root,
+            f"Discovered eval directories do not match the plan; missing={missing}, extra={extra}.",
+            "Run exactly the eval directories frozen in evaluation-plan.json.",
+        )
+    elif plan is None and not eval_dirs:
+        add_finding(
+            findings,
+            "error",
+            "aggregate.coverage_mismatch",
+            root,
+            "No eval-* directories were found.",
+            "Add the complete planned eval directory set before aggregating.",
+        )
 
     for eval_dir in eval_dirs:
         if is_link_like(eval_dir):
@@ -242,7 +395,7 @@ def aggregate(
                     "aggregate.run_incomplete",
                     config_dir,
                     f"Run is incomplete or malformed: {exc}.",
-                    "Add valid grading.json and timing.json; do not silently drop the run.",
+                    "Add valid grading.json, timing.json, and provenance.json; do not silently drop the run.",
                 )
                 runs.append(
                     {
@@ -252,17 +405,82 @@ def aggregate(
                     }
                 )
                 continue
+            provenance = parsed["provenance"]
+            provenance_record = {
+                "eval": eval_dir.name,
+                "configuration": config_dir.name,
+                "campaign_id": provenance["campaign_id"],
+                "eval_id": provenance["eval_id"],
+                "package_identity": provenance["package_identity"],
+                "environment_identity": provenance["environment_identity"],
+                "valid": False,
+            }
+            provenance_facts.append(provenance_record)
+            if config_dir.name == candidate:
+                candidate_identities.add(provenance["package_identity"])
+
+            planned_eval = (
+                plan["evals"].get(eval_dir.name) if plan is not None else None
+            )
+            provenance_mismatches: list[str] = []
+            if plan is not None and planned_eval is not None:
+                expected = {
+                    "campaign_id": plan["campaign_id"],
+                    "eval_id": planned_eval["id"],
+                    "configuration": config_dir.name,
+                    "environment_identity": plan["environment_identity"],
+                }
+                if config_dir.name == baseline:
+                    expected["package_identity"] = plan["baseline_identity"]
+                provenance_mismatches = [
+                    field
+                    for field, expected_value in expected.items()
+                    if provenance[field] != expected_value
+                ]
+            provenance_valid = (
+                plan is not None
+                and planned_eval is not None
+                and not provenance_mismatches
+            )
+            if provenance_mismatches:
+                add_finding(
+                    findings,
+                    "error",
+                    "aggregate.provenance_mismatch",
+                    config_dir / "provenance.json",
+                    "Provenance does not match the frozen plan or run: "
+                    + ", ".join(provenance_mismatches)
+                    + ".",
+                    "Regenerate provenance from the frozen campaign, eval, configuration, package, and environment identities.",
+                )
+            provenance_record["valid"] = provenance_valid
+
+            assertions_valid = (
+                planned_eval is not None
+                and parsed["assertion_texts"] == planned_eval["assertions"]
+            )
+            if planned_eval is not None and not assertions_valid:
+                add_finding(
+                    findings,
+                    "error",
+                    "aggregate.assertion_plan_mismatch",
+                    config_dir / "grading.json",
+                    "Grading assertions do not match the frozen eval assertions.",
+                    "Grade this configuration with exactly the assertions in evaluation-plan.json.",
+                )
+            parsed["bound"] = provenance_valid and assertions_valid
             parsed_configs[config_dir.name] = parsed
             metrics = {
                 key: parsed[key] for key in ("pass_rate", "time_seconds", "tokens")
             }
-            for key, value in metrics.items():
-                values[config_dir.name][key].append(value)
+            if parsed["bound"]:
+                for key, value in metrics.items():
+                    values[config_dir.name][key].append(value)
             runs.append(
                 {
                     "eval": eval_dir.name,
                     "configuration": config_dir.name,
-                    "complete": True,
+                    "complete": parsed["bound"],
                     **metrics,
                 }
             )
@@ -282,7 +500,9 @@ def aggregate(
                     ),
                     "Grade both sides of a paired eval with the same assertions.",
                 )
-            else:
+            elif (
+                parsed_configs[candidate]["bound"] and parsed_configs[baseline]["bound"]
+            ):
                 counts = {key: 0 for key in assertion_summary}
                 assertion_details: list[dict[str, Any]] = []
                 for text in sorted(candidate_assertions):
@@ -313,6 +533,30 @@ def aggregate(
                         "assertions": assertion_details,
                     }
                 )
+
+    candidate_identity = (
+        next(iter(candidate_identities)) if len(candidate_identities) == 1 else None
+    )
+    if len(candidate_identities) > 1:
+        add_finding(
+            findings,
+            "error",
+            "aggregate.provenance_mismatch",
+            root,
+            "Candidate package identity is inconsistent across evals: "
+            + ", ".join(sorted(candidate_identities))
+            + ".",
+            "Use one exact candidate package identity throughout an iteration.",
+        )
+        for item in provenance_facts:
+            if item["configuration"] == candidate:
+                item["valid"] = False
+        for run in runs:
+            if run["configuration"] == candidate:
+                run["complete"] = False
+        values.pop(candidate, None)
+        assertion_analysis = []
+        assertion_summary = {key: 0 for key in assertion_summary}
 
     run_summary: dict[str, Any] = {}
     for configuration in sorted(values):
@@ -345,6 +589,28 @@ def aggregate(
         {
             "candidate": candidate,
             "baseline": baseline,
+            "campaign": {
+                "id": plan["campaign_id"] if plan is not None else None,
+                "environment_identity": (
+                    plan["environment_identity"] if plan is not None else None
+                ),
+            },
+            "coverage": {
+                "planned": sorted(planned_directories),
+                "discovered": sorted(discovered_directories),
+                "matched": sorted(planned_directories & discovered_directories),
+            },
+            "provenance": provenance_facts,
+            "identities": {
+                "candidate": candidate_identity,
+                "candidate_starting": (
+                    plan["candidate_starting_identity"] if plan is not None else None
+                ),
+                "baseline": (plan["baseline_identity"] if plan is not None else None),
+                "environment": (
+                    plan["environment_identity"] if plan is not None else None
+                ),
+            },
             "weighting": "Each complete run has equal weight.",
             "runs": runs,
             "run_summary": run_summary,

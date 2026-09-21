@@ -53,7 +53,7 @@ It never executes target scripts and reports when special files, changes, or
 scan limits prevent complete inspection.
 
 Before relying on the result, require `summary.truncated` to be `false`,
-`facts.resource_inventory_complete` to be `true`, and
+`facts.package_inventory_complete` to be `true`, and
 `facts.text_inspection_complete` to be `true`. When findings are truncated,
 rerun with `--max-findings` set to at least `summary.total`; otherwise report
 the exact completeness gap. Treat the output as mechanical facts and review
@@ -67,9 +67,10 @@ After the boundary preflight:
    the exact path and revision used and report the identity limitation rather
    than inventing a digest.
 2. Read the complete target `SKILL.md` and its agent-facing metadata.
-3. Inventory `references/`, `scripts/`, `assets/`, and `evals/`. Follow every
-   instruction-bearing pointer needed for the requested review; note orphaned
-   resources without loading irrelevant or binary assets into context.
+3. Account for every file in the full package inventory, including agent files
+   and custom top-level directories. Follow every instruction-bearing pointer
+   needed for the requested review; note orphaned resources without loading
+   irrelevant or binary assets into context.
 4. Inspect project artifacts that carry real expertise when available: task
    history, runbooks, schemas, corrections, evals, execution traces, and user
    feedback. Label an unsupported concern as a hypothesis or evidence gap.
