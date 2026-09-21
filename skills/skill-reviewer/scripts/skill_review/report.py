@@ -93,6 +93,7 @@ def render_text(result: dict[str, Any]) -> str:
             "baseline": facts["baseline"],
             "run_summary": facts["run_summary"],
             "delta": facts["delta"],
+            "assertion_summary": facts["assertion_summary"],
             "complete": facts["complete"],
         }
         lines.append(

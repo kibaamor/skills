@@ -109,6 +109,82 @@ class AggregateTests(unittest.TestCase):
         self.assertTrue(result["facts"]["complete"])
         self.assertEqual(result["facts"]["delta"]["pass_rate"], 1.0)
 
+    def test_reports_per_assertion_outcomes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write_run(
+                root,
+                "eval-one",
+                "with_skill",
+                grading(
+                    [
+                        ("Candidate gain", True, "Found candidate output"),
+                        ("Baseline advantage", False, "Candidate omitted detail"),
+                        ("Non-discriminating pass", True, "Both produce JSON"),
+                        ("Shared failure", False, "Candidate misses requirement"),
+                    ]
+                ),
+                1200,
+                3000,
+            )
+            self.write_run(
+                root,
+                "eval-one",
+                "old_skill",
+                grading(
+                    [
+                        ("Candidate gain", False, "Baseline has no output"),
+                        ("Baseline advantage", True, "Baseline includes detail"),
+                        ("Non-discriminating pass", True, "Both produce JSON"),
+                        ("Shared failure", False, "Baseline misses requirement"),
+                    ]
+                ),
+                900,
+                2000,
+            )
+
+            result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            result["facts"]["assertion_summary"],
+            {
+                "candidate_only": 1,
+                "baseline_only": 1,
+                "both_pass": 1,
+                "both_fail": 1,
+            },
+        )
+        analysis = result["facts"]["assertion_analysis"]
+        self.assertEqual(len(analysis), 1)
+        self.assertEqual(analysis[0]["eval"], "eval-one")
+        self.assertEqual(analysis[0]["counts"], result["facts"]["assertion_summary"])
+        self.assertEqual(
+            {item["text"]: item["outcome"] for item in analysis[0]["assertions"]},
+            {
+                "Baseline advantage": "baseline_only",
+                "Candidate gain": "candidate_only",
+                "Non-discriminating pass": "both_pass",
+                "Shared failure": "both_fail",
+            },
+        )
+        candidate_gain = next(
+            item
+            for item in analysis[0]["assertions"]
+            if item["text"] == "Candidate gain"
+        )
+        self.assertEqual(
+            candidate_gain,
+            {
+                "text": "Candidate gain",
+                "outcome": "candidate_only",
+                "candidate_passed": True,
+                "candidate_evidence": "Found candidate output",
+                "baseline_passed": False,
+                "baseline_evidence": "Baseline has no output",
+            },
+        )
+
     def test_aggregate_ignores_unselected_configuration_directories(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -135,7 +211,42 @@ class AggregateTests(unittest.TestCase):
         metrics = json.loads(metrics_line.removeprefix("metrics="))
         self.assertIn("with_skill", metrics["run_summary"])
         self.assertEqual(metrics["delta"]["pass_rate"], 1.0)
+        self.assertEqual(metrics["assertion_summary"]["candidate_only"], 1)
         self.assertTrue(metrics["complete"])
+
+    def test_json_output_safely_escapes_unpaired_surrogates(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            evidence = "Evidence \ud800"
+            self.write_run(
+                root,
+                "eval-one",
+                "with_skill",
+                grading([("Has result", True, evidence)]),
+                1200,
+                3000,
+            )
+            self.write_run(
+                root,
+                "eval-one",
+                "old_skill",
+                grading([("Has result", False, "output.json is absent")]),
+                900,
+                2000,
+            )
+            output = root / "benchmark.json"
+
+            completed = self.run_aggregate_cli(root, "--output", str(output))
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            rendered = output.read_text(encoding="utf-8")
+
+        self.assertEqual(completed.stderr, "")
+        self.assertEqual(completed.stdout, rendered)
+        self.assertIn("\\ud800", rendered)
+        result = json.loads(rendered)
+        assertion = result["facts"]["assertion_analysis"][0]["assertions"][0]
+        self.assertEqual(assertion["candidate_evidence"], evidence)
 
     @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
     def test_accepts_iteration_root_junction_alias(self) -> None:
@@ -262,6 +373,10 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertFalse(result["facts"]["complete"])
         self.assertIsNone(result["facts"]["delta"])
+        self.assertEqual(result["facts"]["assertion_analysis"], [])
+        self.assertTrue(
+            all(count == 0 for count in result["facts"]["assertion_summary"].values())
+        )
         self.assertIn(
             "aggregate.assertion_set_mismatch",
             {finding["code"] for finding in result["findings"]},

@@ -63,6 +63,10 @@ version.
 Every run starts with a clean context and a unique output directory. Give both
 sides the identical prompt, inputs, and output contract.
 
+When independent workers are available, launch both sides before inspecting
+either result. Otherwise run them sequentially in fresh contexts; do not let the
+first output change the second run's prompt or contract.
+
 - For a new skill, compare `with_skill` with `without_skill`.
 - For authorized remediation, snapshot the untouched target first and compare
   `with_skill` with `old_skill`.
@@ -84,7 +88,7 @@ Use this layout without overwriting prior iterations:
     │       ├── grading.json
     │       ├── provenance.json
     │       └── timing.json
-    ├── feedback.json
+    ├── feedback.md
     └── benchmark.json
 ```
 
@@ -122,10 +126,22 @@ doubt. Revisit assertions that both configurations always pass, both always
 fail, or that cannot be checked from the output.
 
 Use blind comparison for holistic qualities such as organization and usability:
-hide which output is the candidate. When a human reviewer is available, save
-their specific, actionable feedback or an explicit no-issue result. Otherwise
-state explicitly that human review was not performed; LLM judging is not human
-assurance.
+hide which output is the candidate. For subjective artifacts, collect the
+verdict and reasons before revealing identities or revising the skill. When a
+human reviewer is available, save their specific, actionable feedback or an
+explicit no-issue result. Otherwise state explicitly that human review was not
+performed; LLM judging is not human assurance.
+
+Use the host's native safe artifact presentation instead of building a viewer
+for one campaign. In `feedback.md`, record one entry per eval and review lane
+with the eval ID, reviewer kind (`human` or `model`), review status (`performed`
+or `not_performed`), and blinding status (`blinded`, `unblinded`, or
+`not_applicable`). A performed review also records its preference (`A`, `B`,
+`tie`, or `inconclusive`), reasons or an explicit no-issue result, and the A/B
+mapping. For a blinded review, write the preference and reasons before appending
+the mapping. A review that was not performed records the reason, uses
+`not_applicable` for blinding, and omits preference and mapping. Do not claim
+blinding when the reviewer could observe configuration identities.
 
 ## Aggregate and interpret
 
@@ -152,6 +168,24 @@ Output links, redirecting parent paths, and special files are always rejected.
 On platforms without directory-relative file operations, do not mutate the
 iteration concurrently with publication; those races can only be checked on a
 best-effort basis. Use `--output -` when no report file should be created.
+
+The JSON result classifies every assertion in a complete matched pair:
+
+- `candidate_only`: the candidate passes and the baseline fails;
+- `baseline_only`: the baseline passes and the candidate fails;
+- `both_pass`: both configurations pass;
+- `both_fail`: both configurations fail.
+
+Use `facts.assertion_summary` for totals and `facts.assertion_analysis` for the
+per-eval evidence. Only complete pairs with identical assertion text sets
+contribute. When `facts.complete` is false, the analysis may be partial and is
+not regression evidence. These are diagnostic assertion-instance counts, not a
+new quality score; `both_fail` and `baseline_only` do not become findings unless
+the frozen success bar makes them material.
+
+This is deterministic classification, not an automatic eval-quality verdict.
+Use the frozen success bar, retained outputs, and transcripts to judge assertion
+quality, explain variance, or identify a material cost anomaly.
 
 Interpret quality and cost separately. Inspect:
 

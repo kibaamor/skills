@@ -178,7 +178,8 @@ Lead with the verdict. Then report, in order:
    evidence-gathering test;
 2. focused changes made, or proposed changes in read-only mode;
 3. the three assurance dimensions, validation results, and behavioral
-   comparisons, including quality, time, and token deltas when measured;
+   comparisons, including quality, time, and token deltas plus human-review and
+   blinding status when measured;
 4. unresolved evidence gaps or risks.
 
 State explicitly when no material issue was found. Do not manufacture changes

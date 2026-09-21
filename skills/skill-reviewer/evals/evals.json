@@ -76,6 +76,24 @@
         "No finding treats references/example-only.md as a required or missing pointer",
         "SHA-256 hashes of every source fixture are identical before and after the run"
       ]
+    },
+    {
+      "id": "paired-review-status",
+      "prompt": "Evaluate whether evals/files/focused-skill improves this request over running without the skill: 'Write a LEASE_STALE recovery procedure from the supplied fixture; do not execute its commands.' Run one isolated paired case with identical inputs and output contract. Independent workers are available. Use a blinded model comparison for holistic quality; no human reviewer is available. Keep source fixtures unchanged and retain campaign evidence under the run output directory.",
+      "expected_output": "An isolated with_skill/without_skill comparison whose clean-context runs start before either output is inspected, with frozen plan, grading, timing, and provenance evidence; blinded model feedback is recorded before reveal, unavailable human review is recorded separately, and the report states quality, cost, human-review, and blinding status without treating model judgment as human assurance.",
+      "files": [
+        "evals/files/focused-skill/SKILL.md",
+        "evals/files/focused-skill/references/recovery.md"
+      ],
+      "assertions": [
+        "SHA-256 hashes of every source fixture are identical before and after the run",
+        "The tool trace contains no acme-consumer invocation",
+        "The tool trace shows both clean-context configurations start before either result is inspected",
+        "Both configurations receive the same prompt, inputs, and output contract and retain grading, timing, and provenance tied to the frozen plan",
+        "feedback.md records a performed blinded model review whose preference and reasons precede the revealed A/B mapping",
+        "feedback.md separately records human review as not performed without fabricating a preference or A/B mapping",
+        "The final report states quality, time, tokens, human-review, and blinding status separately and does not present model judgment as human assurance"
+      ]
     }
   ]
 }

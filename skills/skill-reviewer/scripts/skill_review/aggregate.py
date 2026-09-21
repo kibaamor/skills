@@ -86,6 +86,7 @@ def parse_run(
         raise ValueError("grading.json must contain a non-empty assertion_results array")
     passed = 0
     assertion_texts: set[str] = set()
+    assertions: dict[str, dict[str, Any]] = {}
     for index, assertion in enumerate(assertion_results):
         label = f"assertion_results[{index}]"
         if not isinstance(assertion, dict):
@@ -102,6 +103,10 @@ def parse_run(
             "evidence"
         ].strip():
             raise ValueError(f"{label}.evidence must be a non-empty string")
+        assertions[normalized_text] = {
+            "passed": assertion["passed"],
+            "evidence": assertion["evidence"].strip(),
+        }
         passed += int(assertion["passed"])
 
     summary = grading.get("summary")
@@ -122,6 +127,7 @@ def parse_run(
         "time_seconds": numeric(timing.get("duration_ms"), "duration_ms") / 1000,
         "tokens": numeric(timing.get("total_tokens"), "total_tokens"),
         "assertion_texts": assertion_texts,
+        "assertions": assertions,
     }
 
 
@@ -145,6 +151,13 @@ def aggregate(
         lambda: {"pass_rate": [], "time_seconds": [], "tokens": []}
     )
     runs: list[dict[str, Any]] = []
+    assertion_analysis: list[dict[str, Any]] = []
+    assertion_summary = {
+        "candidate_only": 0,
+        "baseline_only": 0,
+        "both_pass": 0,
+        "both_fail": 0,
+    }
     eval_dirs = sorted(
         path
         for path in root.glob("eval-*")
@@ -269,6 +282,37 @@ def aggregate(
                     ),
                     "Grade both sides of a paired eval with the same assertions.",
                 )
+            else:
+                counts = {key: 0 for key in assertion_summary}
+                assertion_details: list[dict[str, Any]] = []
+                for text in sorted(candidate_assertions):
+                    candidate_result = parsed_configs[candidate]["assertions"][text]
+                    baseline_result = parsed_configs[baseline]["assertions"][text]
+                    candidate_passed = candidate_result["passed"]
+                    baseline_passed = baseline_result["passed"]
+                    if candidate_passed:
+                        outcome = "both_pass" if baseline_passed else "candidate_only"
+                    else:
+                        outcome = "baseline_only" if baseline_passed else "both_fail"
+                    counts[outcome] += 1
+                    assertion_summary[outcome] += 1
+                    assertion_details.append(
+                        {
+                            "text": text,
+                            "outcome": outcome,
+                            "candidate_passed": candidate_passed,
+                            "candidate_evidence": candidate_result["evidence"],
+                            "baseline_passed": baseline_passed,
+                            "baseline_evidence": baseline_result["evidence"],
+                        }
+                    )
+                assertion_analysis.append(
+                    {
+                        "eval": eval_dir.name,
+                        "counts": counts,
+                        "assertions": assertion_details,
+                    }
+                )
 
     run_summary: dict[str, Any] = {}
     for configuration in sorted(values):
@@ -305,6 +349,8 @@ def aggregate(
             "runs": runs,
             "run_summary": run_summary,
             "delta": delta,
+            "assertion_summary": assertion_summary,
+            "assertion_analysis": assertion_analysis,
             "complete": not any(item.severity == "error" for item in findings),
         },
         findings,

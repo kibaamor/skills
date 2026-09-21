@@ -36,7 +36,7 @@ def write_result(result: dict[str, Any], args: argparse.Namespace) -> None:
             json.dumps(
                 result,
                 indent=2 if args.pretty else None,
-                ensure_ascii=False,
+                ensure_ascii=True,
                 sort_keys=False,
             )
             + "\n"
