@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import os
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -17,6 +19,7 @@ from _support import (
     FS_SAFETY,
     REVIEW,
     SCRIPT,
+    STATIC_REVIEW_MODULE,
     junction_or_fail,
     skill_text,
     symlink_or_skip,
@@ -26,7 +29,69 @@ from _support import (
 
 
 class StaticReviewTests(unittest.TestCase):
-    def test_inventory_reads_instruction_text_outside_standard_directories(self) -> None:
+    def test_package_identity_covers_paths_and_binary_contents(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "content-digest-skill"
+            skill_md = root / "SKILL.md"
+            binary = root / "custom" / "artifact.bin"
+            write(skill_md, skill_text("content-digest-skill"))
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"\xff\x00\x81")
+
+            initial, initial_status = REVIEW.static_review(root, 100)
+            binary.write_bytes(b"\xff\x00\x82")
+            changed, changed_status = REVIEW.static_review(root, 100)
+            renamed = binary.with_name("renamed.bin")
+            binary.rename(renamed)
+            renamed_result, renamed_status = REVIEW.static_review(root, 100)
+
+            manifest = hashlib.sha256(b"skill-package-manifest\0sha256\0v1\0")
+            manifest.update(struct.pack(">Q", 2))
+            for path in sorted(
+                (skill_md, renamed), key=lambda item: item.relative_to(root).as_posix()
+            ):
+                relative = path.relative_to(root).as_posix().encode("utf-8")
+                contents = path.read_bytes()
+                manifest.update(b"F")
+                manifest.update(struct.pack(">Q", len(relative)))
+                manifest.update(relative)
+                manifest.update(struct.pack(">Q", len(contents)))
+                manifest.update(hashlib.sha256(contents).digest())
+            expected_identity = f"sha256:{manifest.hexdigest()}"
+
+        self.assertEqual((initial_status, changed_status, renamed_status), (0, 0, 0))
+        self.assertTrue(initial["facts"]["package_digest_complete"])
+        self.assertEqual(initial["facts"]["package_digest_scope"], "entire_package")
+        self.assertEqual(initial["facts"]["package_digest_algorithm"], "sha256")
+        self.assertEqual(
+            initial["facts"]["package_digest_format"],
+            "skill-package-manifest-v1",
+        )
+        self.assertEqual(
+            initial["facts"]["limits"]["digest_file_bytes"],
+            64 << 20,
+        )
+        self.assertEqual(
+            initial["facts"]["limits"]["total_digest_bytes"],
+            256 << 20,
+        )
+        self.assertEqual(
+            initial["facts"]["package_digest_bytes"],
+            initial["facts"]["text_bytes_read"] + 3,
+        )
+        self.assertNotEqual(
+            initial["facts"]["package_identity"],
+            changed["facts"]["package_identity"],
+        )
+        self.assertNotEqual(
+            changed["facts"]["package_identity"],
+            renamed_result["facts"]["package_identity"],
+        )
+        self.assertEqual(renamed_result["facts"]["package_identity"], expected_identity)
+
+    def test_inventory_reads_instruction_text_outside_standard_directories(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "custom-instructions-skill"
             skill_md = root / "SKILL.md"
@@ -71,6 +136,8 @@ class StaticReviewTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertFalse(result["facts"]["package_inventory_complete"])
         self.assertFalse(result["facts"]["resource_inventory_complete"])
+        self.assertFalse(result["facts"]["package_digest_complete"])
+        self.assertIsNone(result["facts"]["package_identity"])
         self.assertEqual(result["facts"]["text_bytes_read"], skill_bytes)
         self.assertIn(
             "package.resource_symlink",
@@ -217,9 +284,7 @@ class StaticReviewTests(unittest.TestCase):
                     child.symlink_to(external, target_is_directory=True)
                 return original_scandir(path)
 
-            with mock.patch.object(
-                REVIEW.os, "scandir", side_effect=swapping_scandir
-            ):
+            with mock.patch.object(REVIEW.os, "scandir", side_effect=swapping_scandir):
                 result, status = REVIEW.static_review(root, 100)
 
         self.assertTrue(swapped)
@@ -265,13 +330,260 @@ class StaticReviewTests(unittest.TestCase):
                 ) as close_descriptor,
                 self.assertRaises(REVIEW.TextReadError) as caught,
             ):
-                REVIEW.read_bounded_regular_utf8(
-                    root, path, REVIEW.TextReadBudget()
-                )
+                REVIEW.read_bounded_regular_utf8(root, path, REVIEW.TextReadBudget())
 
         self.assertTrue(changed)
         self.assertEqual(caught.exception.code, "package.resource_changed")
         close_descriptor.assert_called_once()
+
+    def test_package_digest_rejects_same_size_change_during_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "artifact.bin"
+            path.write_bytes(b"A" * 100_000)
+            original_info = path.stat()
+            original_read = FS_SAFETY.os.read
+            changed = False
+
+            def changing_read(descriptor: int, size: int) -> bytes:
+                nonlocal changed
+                chunk = original_read(descriptor, size)
+                if chunk and not changed:
+                    changed = True
+                    with path.open("r+b") as stream:
+                        stream.write(b"B" * 100_000)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    os.utime(
+                        path,
+                        ns=(
+                            original_info.st_atime_ns,
+                            original_info.st_mtime_ns + 2_000_000_000,
+                        ),
+                    )
+                return chunk
+
+            with (
+                mock.patch.object(FS_SAFETY.os, "read", side_effect=changing_read),
+                self.assertRaises(FS_SAFETY.DigestError) as caught,
+            ):
+                FS_SAFETY.digest_package_files(
+                    root,
+                    [path],
+                    FS_SAFETY.DigestBudget(),
+                )
+
+        self.assertTrue(changed)
+        self.assertEqual(caught.exception.code, "package.resource_changed")
+
+    def test_package_digest_per_file_budget_rejects_without_opening_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "digest-file-budget-skill"
+            oversized = root / "artifact.bin"
+            skill_md = root / "SKILL.md"
+            write(skill_md, skill_text("digest-file-budget-skill"))
+            file_limit = skill_md.stat().st_size
+            oversized.parent.mkdir(parents=True, exist_ok=True)
+            oversized.write_bytes(b"x" * (file_limit + 1))
+            real_open = FS_SAFETY.os.open
+
+            def guarded_open(
+                path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+                flags: int,
+                mode: int = 0o777,
+                *,
+                dir_fd: int | None = None,
+            ) -> int:
+                if Path(path) == oversized:
+                    self.fail("oversized binary resource was opened")
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with (
+                mock.patch.object(
+                    FS_SAFETY,
+                    "MAX_DIGEST_FILE_BYTES",
+                    file_limit,
+                ),
+                mock.patch.object(FS_SAFETY, "MAX_TOTAL_DIGEST_BYTES", 1 << 20),
+                mock.patch.object(FS_SAFETY.os, "open", guarded_open),
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["package_digest_complete"])
+        self.assertIsNone(result["facts"]["package_identity"])
+        self.assertIn(
+            "package.digest_file_limit",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_package_digest_total_budget_is_independent_from_text_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "digest-total-budget-skill"
+            skill_md = root / "SKILL.md"
+            binary = root / "artifact.bin"
+            write(skill_md, skill_text("digest-total-budget-skill"))
+            binary.write_bytes(b"12")
+            skill_bytes = skill_md.stat().st_size
+
+            with (
+                mock.patch.object(
+                    FS_SAFETY,
+                    "MAX_DIGEST_FILE_BYTES",
+                    skill_bytes + 10,
+                ),
+                mock.patch.object(
+                    FS_SAFETY,
+                    "MAX_TOTAL_DIGEST_BYTES",
+                    skill_bytes + 1,
+                ),
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertEqual(result["facts"]["package_digest_bytes"], skill_bytes)
+        self.assertEqual(result["facts"]["text_bytes_read"], skill_bytes)
+        self.assertFalse(result["facts"]["package_digest_complete"])
+        self.assertIsNone(result["facts"]["package_identity"])
+        self.assertIn(
+            "package.digest_total_limit",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_package_digest_fails_closed_when_inventory_changes(self) -> None:
+        for change in ("add", "delete", "rename"):
+            with (
+                self.subTest(change=change),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary) / "digest-inventory-race-skill"
+                existing = root / "existing.bin"
+                write(root / "SKILL.md", skill_text("digest-inventory-race-skill"))
+                existing.write_bytes(b"old")
+                real_digest = STATIC_REVIEW_MODULE.digest_package_files
+
+                def changing_digest(
+                    package_root: Path,
+                    files: list[Path],
+                    budget: FS_SAFETY.DigestBudget,
+                ) -> str:
+                    identity = real_digest(package_root, files, budget)
+                    if change == "add":
+                        (root / "added-after-digest.bin").write_bytes(b"new")
+                    elif change == "delete":
+                        existing.unlink()
+                    else:
+                        existing.rename(root / "renamed-after-digest.bin")
+                    return identity
+
+                with mock.patch.object(
+                    STATIC_REVIEW_MODULE,
+                    "digest_package_files",
+                    changing_digest,
+                ):
+                    result, status = REVIEW.static_review(root, 100)
+
+            self.assertEqual(status, 1)
+            self.assertFalse(result["facts"]["package_inventory_complete"])
+            self.assertFalse(result["facts"]["package_digest_complete"])
+            self.assertIsNone(result["facts"]["package_identity"])
+            self.assertIn(
+                "package.resource_changed",
+                {finding["code"] for finding in result["findings"]},
+            )
+
+    def test_package_digest_fails_closed_when_reviewed_content_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "digest-content-race-skill"
+            guide = root / "references" / "guide.md"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "digest-content-race-skill",
+                    body="Read [the guide](references/guide.md).",
+                ),
+            )
+            write(guide, "Read [one](one-missing.md).\n")
+            real_digest = STATIC_REVIEW_MODULE.digest_package_files
+            digest_calls = 0
+
+            def changing_digest(
+                package_root: Path,
+                files: list[Path],
+                budget: FS_SAFETY.DigestBudget,
+            ) -> str:
+                nonlocal digest_calls
+                identity = real_digest(package_root, files, budget)
+                digest_calls += 1
+                if digest_calls == 1:
+                    write(guide, "Read [two](two-missing.md).\n")
+                return identity
+
+            with mock.patch.object(
+                STATIC_REVIEW_MODULE,
+                "digest_package_files",
+                changing_digest,
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 1)
+        self.assertEqual(digest_calls, 1)
+        self.assertFalse(result["facts"]["package_digest_complete"])
+        self.assertFalse(result["facts"]["text_inspection_complete"])
+        self.assertIsNone(result["facts"]["package_identity"])
+        self.assertIn(
+            "package.resource_changed",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_package_digest_binds_transient_reviewed_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "digest-aba-race-skill"
+            guide = root / "references" / "guide.md"
+            original = "# Stable guide\n"
+            transient = "Read [missing](missing.md).\n"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "digest-aba-race-skill",
+                    body="Read [the guide](references/guide.md).",
+                ),
+            )
+            write(guide, original)
+            real_read = STATIC_REVIEW_MODULE.read_bounded_regular_utf8
+            swapped = False
+
+            def aba_read(
+                package_root: Path,
+                path: Path,
+                budget: FS_SAFETY.TextReadBudget,
+            ) -> str:
+                nonlocal swapped
+                if path != guide or swapped:
+                    return real_read(package_root, path, budget)
+                swapped = True
+                write(guide, transient)
+                try:
+                    return real_read(package_root, path, budget)
+                finally:
+                    write(guide, original)
+
+            with mock.patch.object(
+                STATIC_REVIEW_MODULE,
+                "read_bounded_regular_utf8",
+                aba_read,
+            ):
+                result, status = REVIEW.static_review(root, 100)
+
+        self.assertTrue(swapped)
+        self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["package_digest_complete"])
+        self.assertFalse(result["facts"]["text_inspection_complete"])
+        self.assertIsNone(result["facts"]["package_identity"])
+        self.assertIn(
+            "package.resource_changed",
+            {finding["code"] for finding in result["findings"]},
+        )
 
     def test_windows_stable_signature_ignores_inconsistent_ctime(self) -> None:
         class StatInfo:
@@ -287,9 +599,7 @@ class StaticReviewTests(unittest.TestCase):
 
         self.assertEqual(lstat_signature, fstat_signature)
 
-    @unittest.skipUnless(
-        os.name == "nt", "cached directory metadata is Windows-only"
-    )
+    @unittest.skipUnless(os.name == "nt", "cached directory metadata is Windows-only")
     def test_windows_nested_directory_inventory_is_stable(self) -> None:
         for index in range(50):
             with (
@@ -362,9 +672,7 @@ class StaticReviewTests(unittest.TestCase):
             write(root / "SKILL.md", skill_text("entry-budget-skill"))
             for index in range(3):
                 write(root / "custom" / f"entry-{index}.bin", "x")
-            with mock.patch.object(
-                FS_SAFETY, "MAX_RESOURCE_ENTRIES", 3
-            ):
+            with mock.patch.object(FS_SAFETY, "MAX_RESOURCE_ENTRIES", 3):
                 result, status = REVIEW.static_review(root, 100)
 
         self.assertEqual(status, 1)
@@ -407,17 +715,19 @@ class StaticReviewTests(unittest.TestCase):
             write(root / "SKILL.md", skill_contents)
             per_file_limit = (root / "SKILL.md").stat().st_size
             write(oversized, "x" * (per_file_limit + 1))
-            real_open = REVIEW.os.open
+            real_open = FS_SAFETY.os.open
+            oversized_opens = 0
 
-            def guarded_open(
+            def counted_open(
                 path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
                 flags: int,
                 mode: int = 0o777,
                 *,
                 dir_fd: int | None = None,
             ) -> int:
+                nonlocal oversized_opens
                 if Path(path) == oversized:
-                    self.fail("oversized instruction resource was read")
+                    oversized_opens += 1
                 return real_open(path, flags, mode, dir_fd=dir_fd)
 
             with (
@@ -431,11 +741,16 @@ class StaticReviewTests(unittest.TestCase):
                     "MAX_TOTAL_TEXT_BYTES",
                     per_file_limit * 3,
                 ),
-                mock.patch.object(REVIEW.os, "open", guarded_open),
+                mock.patch.object(
+                    FS_SAFETY.os,
+                    "open",
+                    counted_open,
+                ),
             ):
                 result, status = REVIEW.static_review(root, 100)
 
         self.assertEqual(status, 1)
+        self.assertEqual(oversized_opens, 2)
         self.assertEqual(
             [
                 finding["path"]
@@ -512,9 +827,7 @@ class StaticReviewTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "nt", "directory junctions require Windows")
     def test_reference_directory_junctions_are_not_read(self) -> None:
-        for index, relative_directory in enumerate(
-            ("references", "references/nested")
-        ):
+        for index, relative_directory in enumerate(("references", "references/nested")):
             with self.subTest(relative_directory=relative_directory):
                 with tempfile.TemporaryDirectory() as temporary:
                     temporary_root = Path(temporary)
@@ -549,9 +862,7 @@ class StaticReviewTests(unittest.TestCase):
                         return real_read_text(path, *args, **kwargs)
 
                     try:
-                        with mock.patch.object(
-                            Path, "read_text", guarded_read_text
-                        ):
+                        with mock.patch.object(Path, "read_text", guarded_read_text):
                             result, status = REVIEW.static_review(root, 100)
                     finally:
                         if os.path.lexists(link):

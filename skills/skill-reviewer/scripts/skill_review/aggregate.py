@@ -6,8 +6,10 @@ command-line usage.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+import re
 import statistics
 from collections import defaultdict
 from pathlib import Path
@@ -21,6 +23,17 @@ from .fs_safety import (
     resolve_within,
 )
 from .report import Finding, add_finding, finalize
+
+
+SCHEMA_VERSION = 1
+SHA256_IDENTITY = re.compile(r"sha256:[0-9a-f]{64}")
+ACCEPTANCE_ORDER = (
+    "min_candidate_pass_rate",
+    "min_pass_rate_delta",
+    "max_time_seconds_delta",
+    "max_tokens_delta",
+    "max_baseline_only",
+)
 
 
 def numeric(value: Any, label: str) -> float:
@@ -52,6 +65,80 @@ def nonempty_string(data: dict[str, Any], field: str, label: str) -> str:
     return value
 
 
+def require_schema_version(data: dict[str, Any], label: str) -> None:
+    value = data.get("schema_version")
+    if isinstance(value, bool) or not isinstance(value, int) or value != SCHEMA_VERSION:
+        raise ValueError(f"{label}.schema_version must be the integer {SCHEMA_VERSION}")
+
+
+def sha256_identity(data: dict[str, Any], field: str, label: str) -> str:
+    value = nonempty_string(data, field, label)
+    if SHA256_IDENTITY.fullmatch(value) is None:
+        raise ValueError(f"{label}.{field} must be sha256:<64 lowercase hex digits>")
+    return value
+
+
+def acceptance_number(
+    data: dict[str, Any], field: str, minimum: float, maximum: float | None = None
+) -> float:
+    value = data.get(field)
+    label = f"evaluation-plan.json.acceptance.{field}"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be numeric")
+    try:
+        converted = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{label} must be finite") from exc
+    if not math.isfinite(converted) or converted < minimum:
+        raise ValueError(f"{label} must be at least {minimum}")
+    if maximum is not None and converted > maximum:
+        raise ValueError(f"{label} must be at most {maximum}")
+    return converted
+
+
+def parse_acceptance(plan: dict[str, Any]) -> dict[str, float | int]:
+    acceptance = plan.get("acceptance")
+    if not isinstance(acceptance, dict):
+        raise ValueError("evaluation-plan.json.acceptance must be an object")
+    unknown = sorted(set(acceptance) - set(ACCEPTANCE_ORDER))
+    if unknown:
+        raise ValueError(
+            "evaluation-plan.json.acceptance contains unknown fields: "
+            + ", ".join(unknown)
+        )
+    missing = [
+        field
+        for field in ("min_candidate_pass_rate", "min_pass_rate_delta")
+        if field not in acceptance
+    ]
+    if missing:
+        raise ValueError(
+            "evaluation-plan.json.acceptance is missing required fields: "
+            + ", ".join(missing)
+        )
+
+    parsed: dict[str, float | int] = {
+        "min_candidate_pass_rate": acceptance_number(
+            acceptance, "min_candidate_pass_rate", 0, 1
+        ),
+        "min_pass_rate_delta": acceptance_number(
+            acceptance, "min_pass_rate_delta", -1, 1
+        ),
+    }
+    for field in ("max_time_seconds_delta", "max_tokens_delta"):
+        if field in acceptance:
+            parsed[field] = acceptance_number(acceptance, field, 0)
+    if "max_baseline_only" in acceptance:
+        value = acceptance["max_baseline_only"]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                "evaluation-plan.json.acceptance.max_baseline_only "
+                "must be a non-negative integer"
+            )
+        parsed["max_baseline_only"] = value
+    return parsed
+
+
 def parse_plan(
     workspace: Path,
     candidate: str,
@@ -60,12 +147,15 @@ def parse_plan(
 ) -> dict[str, Any]:
     path = workspace / "evaluation-plan.json"
     try:
-        plan = json.loads(read_bounded_regular_utf8(workspace, path, text_budget))
+        text = read_bounded_regular_utf8(workspace, path, text_budget)
+        plan = json.loads(text)
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError(f"evaluation-plan.json is missing or unsafe: {exc}") from exc
     if not isinstance(plan, dict):
         raise ValueError("evaluation-plan.json must be an object")
 
+    require_schema_version(plan, "evaluation-plan.json")
+    plan_identity = "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
     campaign_id = nonempty_string(plan, "campaign_id", "evaluation-plan.json")
     environment = nonempty_string(plan, "environment_identity", "evaluation-plan.json")
     candidate_plan = plan.get("candidate")
@@ -75,16 +165,17 @@ def parse_plan(
     if not isinstance(baseline_plan, dict):
         raise ValueError("evaluation-plan.json.baseline must be an object")
     candidate_name = nonempty_string(candidate_plan, "name", "candidate")
-    candidate_starting = nonempty_string(
+    candidate_starting = sha256_identity(
         candidate_plan, "starting_package_identity", "candidate"
     )
     baseline_name = nonempty_string(baseline_plan, "name", "baseline")
-    baseline_identity = nonempty_string(baseline_plan, "package_identity", "baseline")
+    baseline_identity = sha256_identity(baseline_plan, "package_identity", "baseline")
     if candidate_name != candidate or baseline_name != baseline:
         raise ValueError(
             "plan configuration names must match --candidate and --baseline"
         )
 
+    acceptance = parse_acceptance(plan)
     evals = plan.get("evals")
     if not isinstance(evals, list) or not evals:
         raise ValueError("evaluation-plan.json.evals must be a non-empty array")
@@ -126,10 +217,13 @@ def parse_plan(
             "assertions": normalized_assertions,
         }
     return {
+        "schema_version": SCHEMA_VERSION,
+        "plan_identity": plan_identity,
         "campaign_id": campaign_id,
         "environment_identity": environment,
         "candidate_starting_identity": candidate_starting,
         "baseline_identity": baseline_identity,
+        "acceptance": acceptance,
         "evals": by_directory,
     }
 
@@ -175,14 +269,16 @@ def parse_run(
         raise ValueError("timing.json must be an object")
     if not isinstance(provenance, dict):
         raise ValueError("provenance.json must be an object")
+    require_schema_version(provenance, "provenance.json")
     for field in (
         "campaign_id",
         "eval_id",
         "configuration",
-        "package_identity",
         "environment_identity",
     ):
         nonempty_string(provenance, field, "provenance.json")
+    sha256_identity(provenance, "plan_identity", "provenance.json")
+    sha256_identity(provenance, "package_identity", "provenance.json")
 
     assertion_results = grading.get("assertion_results")
     if not isinstance(assertion_results, list) or not assertion_results:
@@ -240,6 +336,66 @@ def parse_run(
         "assertions": assertions,
         "provenance": provenance,
     }
+
+
+def evaluate_acceptance(
+    acceptance: dict[str, float | int] | None,
+    candidate_summary: dict[str, Any] | None,
+    delta: dict[str, float] | None,
+    baseline_only: int,
+    evidence_complete: bool,
+) -> dict[str, Any]:
+    if acceptance is None:
+        return {"status": "indeterminate", "checks": []}
+
+    actuals = {
+        "min_candidate_pass_rate": (
+            candidate_summary["pass_rate"]["mean"]
+            if evidence_complete and candidate_summary is not None
+            else None
+        ),
+        "min_pass_rate_delta": (
+            delta["pass_rate"] if evidence_complete and delta is not None else None
+        ),
+        "max_time_seconds_delta": (
+            delta["time_seconds"] if evidence_complete and delta is not None else None
+        ),
+        "max_tokens_delta": (
+            delta["tokens"] if evidence_complete and delta is not None else None
+        ),
+        "max_baseline_only": baseline_only if evidence_complete else None,
+    }
+    checks: list[dict[str, Any]] = []
+    for name in ACCEPTANCE_ORDER:
+        if name not in acceptance:
+            continue
+        operator = ">=" if name.startswith("min_") else "<="
+        threshold = acceptance[name]
+        actual = actuals[name]
+        passed = None
+        if actual is not None:
+            passed = actual >= threshold if operator == ">=" else actual <= threshold
+            if name != "max_baseline_only":
+                tolerance = math.ulp(float(threshold))
+                passed = passed or math.isclose(
+                    float(actual), float(threshold), rel_tol=0, abs_tol=tolerance
+                )
+        checks.append(
+            {
+                "name": name,
+                "operator": operator,
+                "threshold": threshold,
+                "actual": actual,
+                "passed": passed,
+            }
+        )
+    if not evidence_complete:
+        status = "indeterminate"
+    elif all(check["passed"] for check in checks):
+        status = "passed"
+    else:
+        status = "failed"
+    return {"status": status, "checks": checks}
 
 
 def aggregate(
@@ -409,8 +565,10 @@ def aggregate(
             provenance_record = {
                 "eval": eval_dir.name,
                 "configuration": config_dir.name,
+                "schema_version": provenance["schema_version"],
                 "campaign_id": provenance["campaign_id"],
                 "eval_id": provenance["eval_id"],
+                "plan_identity": provenance["plan_identity"],
                 "package_identity": provenance["package_identity"],
                 "environment_identity": provenance["environment_identity"],
                 "valid": False,
@@ -428,6 +586,7 @@ def aggregate(
                     "campaign_id": plan["campaign_id"],
                     "eval_id": planned_eval["id"],
                     "configuration": config_dir.name,
+                    "plan_identity": plan["plan_identity"],
                     "environment_identity": plan["environment_identity"],
                 }
                 if config_dir.name == baseline:
@@ -565,7 +724,7 @@ def aggregate(
             for key, metric_values in values[configuration].items()
         }
 
-    delta = None
+    delta: dict[str, float] | None = None
     has_incomplete_runs = any(item.severity == "error" for item in findings)
     if not has_incomplete_runs and candidate in run_summary and baseline in run_summary:
         delta = {
@@ -583,6 +742,25 @@ def aggregate(
             "Finish or repair the paired configurations and aggregate again.",
         )
 
+    evidence_complete = not any(item.severity == "error" for item in findings)
+    gate = evaluate_acceptance(
+        plan["acceptance"] if plan is not None else None,
+        run_summary.get(candidate),
+        delta,
+        assertion_summary["baseline_only"],
+        evidence_complete,
+    )
+    if gate["status"] == "failed":
+        failed = [check["name"] for check in gate["checks"] if not check["passed"]]
+        add_finding(
+            findings,
+            "error",
+            "aggregate.acceptance_failed",
+            workspace / "evaluation-plan.json",
+            "Acceptance checks failed: " + ", ".join(failed) + ".",
+            "Improve the candidate or revise the frozen thresholds in a new campaign.",
+        )
+
     result = finalize(
         "aggregate",
         root,
@@ -590,7 +768,9 @@ def aggregate(
             "candidate": candidate,
             "baseline": baseline,
             "campaign": {
+                "schema_version": plan["schema_version"] if plan is not None else None,
                 "id": plan["campaign_id"] if plan is not None else None,
+                "plan_identity": (plan["plan_identity"] if plan is not None else None),
                 "environment_identity": (
                     plan["environment_identity"] if plan is not None else None
                 ),
@@ -617,7 +797,9 @@ def aggregate(
             "delta": delta,
             "assertion_summary": assertion_summary,
             "assertion_analysis": assertion_analysis,
-            "complete": not any(item.severity == "error" for item in findings),
+            "gate": gate,
+            "evidence_complete": evidence_complete,
+            "complete": evidence_complete,
         },
         findings,
         max_findings,

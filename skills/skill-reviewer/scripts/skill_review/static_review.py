@@ -6,6 +6,7 @@ command-line usage.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import stat
@@ -15,14 +16,19 @@ from typing import Any
 
 from .frontmatter import parse_frontmatter
 from .fs_safety import (
+    MAX_DIGEST_FILE_BYTES,
     MAX_RESOURCE_DEPTH,
     MAX_RESOURCE_ENTRIES,
     MAX_TEXT_FILE_BYTES,
+    MAX_TOTAL_DIGEST_BYTES,
     MAX_TOTAL_TEXT_BYTES,
+    DigestBudget,
+    DigestError,
     InventoryIssue,
     InventoryState,
     TextReadBudget,
     TextReadError,
+    digest_package_files,
     file_type_name,
     first_link_like_component,
     is_link_like,
@@ -112,6 +118,25 @@ def add_text_read_error(
     )
 
 
+def reviewed_text_matches_digest(
+    root: Path,
+    path: Path,
+    text: str,
+    budget: DigestBudget,
+) -> bool:
+    lexical_root = Path(os.path.abspath(os.fspath(root)))
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    try:
+        relative = absolute.relative_to(lexical_root).as_posix()
+    except ValueError:
+        return False
+    expected = budget.content_digests.get(relative)
+    return (
+        expected is not None
+        and expected == hashlib.sha256(text.encode("utf-8")).digest()
+    )
+
+
 def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]:
     root = target.resolve()
     findings: list[Finding] = []
@@ -128,6 +153,12 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
         "package_inventory_complete": False,
         "resource_inventory_complete": False,
         "resource_inventory_scope": "entire_package",
+        "package_identity": None,
+        "package_digest_scope": "entire_package",
+        "package_digest_algorithm": "sha256",
+        "package_digest_format": "skill-package-manifest-v1",
+        "package_digest_bytes": 0,
+        "package_digest_complete": False,
         "text_bytes_read": 0,
         "text_inspection_complete": False,
         "limits": {
@@ -135,6 +166,8 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             "resource_depth": MAX_RESOURCE_DEPTH,
             "text_file_bytes": MAX_TEXT_FILE_BYTES,
             "total_text_bytes": MAX_TOTAL_TEXT_BYTES,
+            "digest_file_bytes": MAX_DIGEST_FILE_BYTES,
+            "total_digest_bytes": MAX_TOTAL_DIGEST_BYTES,
             "markdown_link_candidates": MAX_MARKDOWN_LINK_CANDIDATES,
             "markdown_bracket_depth": MAX_MARKDOWN_BRACKET_DEPTH,
             "markdown_code_span_delimiters": MAX_MARKDOWN_CODE_SPAN_DELIMITERS,
@@ -348,9 +381,7 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
         all_resource_files[directory] = files
         facts["resource_files"][directory] = len(files)
 
-    facts["package_files"] = sum(
-        not is_link_like(path) for path in package_files
-    )
+    facts["package_files"] = sum(not is_link_like(path) for path in package_files)
     facts["package_entries_scanned"] = inventory_state.entries_scanned
     facts["resource_entries_scanned"] = inventory_state.entries_scanned
     facts["package_inventory_complete"] = inventory_state.complete
@@ -365,6 +396,81 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             "Use ordinary package-local files and keep the package within the documented limits.",
         )
 
+    digest_budget = DigestBudget()
+    pending_identity: str | None = None
+    review_content_bound = True
+    if inventory_state.complete:
+        try:
+            pending_identity = digest_package_files(root, package_files, digest_budget)
+        except DigestError as exc:
+            add_finding(
+                findings,
+                "error",
+                exc.code,
+                exc.path,
+                str(exc),
+                "Keep stable ordinary package files within the documented digest limits.",
+            )
+        else:
+            verification_issues: list[InventoryIssue] = []
+            verification_state = InventoryState()
+            verified_files = iter_files(
+                root, ".", verification_issues, verification_state
+            )
+            for issue in verification_issues:
+                add_finding(
+                    findings,
+                    "error",
+                    issue.code,
+                    issue.path,
+                    issue.message,
+                    "Keep the package stable while its content identity is computed.",
+                )
+            original_paths = tuple(
+                sorted(path.relative_to(root).as_posix() for path in package_files)
+            )
+            verified_paths = tuple(
+                sorted(path.relative_to(root).as_posix() for path in verified_files)
+            )
+            if verification_state.complete and original_paths != verified_paths:
+                add_finding(
+                    findings,
+                    "error",
+                    "package.resource_changed",
+                    root,
+                    "The package file inventory changed while its content identity was computed.",
+                    "Keep the package stable and rerun the review.",
+                )
+                inventory_state.complete = False
+                facts["package_inventory_complete"] = False
+                facts["resource_inventory_complete"] = False
+                pending_identity = None
+            elif not verification_state.complete:
+                inventory_state.complete = False
+                facts["package_inventory_complete"] = False
+                facts["resource_inventory_complete"] = False
+                pending_identity = None
+
+    def bind_reviewed_text(path: Path, contents: str) -> None:
+        nonlocal pending_identity, review_content_bound
+        if pending_identity is None or reviewed_text_matches_digest(
+            root, path, contents, digest_budget
+        ):
+            return
+        add_finding(
+            findings,
+            "error",
+            "package.resource_changed",
+            path,
+            "Reviewed text does not match the content included in the package identity.",
+            "Keep the package stable and rerun the review.",
+        )
+        pending_identity = None
+        review_content_bound = False
+
+    bind_reviewed_text(skill_md, text)
+    facts["package_digest_bytes"] = digest_budget.bytes_hashed
+
     instruction_files = [skill_md] + [
         path
         for path in package_files
@@ -373,13 +479,16 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
         and path.suffix.lower() in {".md", ".txt"}
     ]
     file_texts: dict[Path, str] = {skill_md: text}
-    text_inspection_complete = inventory_state.complete
+    text_inspection_complete = inventory_state.complete and review_content_bound
     for path in instruction_files[1:]:
         try:
             file_texts[path] = read_bounded_regular_utf8(root, path, text_budget)
         except TextReadError as exc:
             text_inspection_complete = False
             add_text_read_error(findings, path, exc, reported_limits)
+        else:
+            bind_reviewed_text(path, file_texts[path])
+            text_inspection_complete &= review_content_bound
 
     mentioned: set[Path] = set()
     reachable_references: set[Path] = set()
@@ -533,6 +642,8 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             text_inspection_complete = False
             add_text_read_error(findings, path, exc, reported_limits)
             continue
+        bind_reviewed_text(path, script_text)
+        text_inspection_complete &= review_content_bound
         if not script_help_detected(path, script_text):
             add_finding(
                 findings,
@@ -619,21 +730,20 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             )
         elif metadata_info is not None and name:
             try:
-                openai_text = read_bounded_regular_utf8(
-                    root, openai_yaml, text_budget
-                )
+                openai_text = read_bounded_regular_utf8(root, openai_yaml, text_budget)
             except TextReadError as exc:
                 text_inspection_complete = False
                 add_text_read_error(findings, openai_yaml, exc, reported_limits)
                 openai_text = ""
+            else:
+                bind_reviewed_text(openai_yaml, openai_text)
+                text_inspection_complete &= review_content_bound
             default_prompt_match = re.search(
                 r"^\s*default_prompt:\s*['\"]?(.*?)['\"]?\s*$",
                 openai_text,
                 re.MULTILINE,
             )
-            if default_prompt_match and f"${name}" not in default_prompt_match.group(
-                1
-            ):
+            if default_prompt_match and f"${name}" not in default_prompt_match.group(1):
                 add_finding(
                     findings,
                     "error",
@@ -643,6 +753,67 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                     "Include the explicit $skill-name token in the example prompt.",
                     line_number(openai_text, "default_prompt:"),
                 )
+
+    if pending_identity is not None:
+        final_issues: list[InventoryIssue] = []
+        final_state = InventoryState()
+        final_files = iter_files(root, ".", final_issues, final_state)
+        for issue in final_issues:
+            add_finding(
+                findings,
+                "error",
+                issue.code,
+                issue.path,
+                issue.message,
+                "Keep the package stable while it is reviewed.",
+            )
+        original_paths = tuple(
+            sorted(path.relative_to(root).as_posix() for path in package_files)
+        )
+        final_paths = tuple(
+            sorted(path.relative_to(root).as_posix() for path in final_files)
+        )
+        if not final_state.complete or original_paths != final_paths:
+            text_inspection_complete = False
+            if final_state.complete:
+                add_finding(
+                    findings,
+                    "error",
+                    "package.resource_changed",
+                    root,
+                    "The package file inventory changed while it was reviewed.",
+                    "Keep the package stable and rerun the review.",
+                )
+            inventory_state.complete = False
+            facts["package_inventory_complete"] = False
+            facts["resource_inventory_complete"] = False
+        else:
+            try:
+                final_identity = digest_package_files(root, final_files, DigestBudget())
+            except DigestError as exc:
+                text_inspection_complete = False
+                add_finding(
+                    findings,
+                    "error",
+                    exc.code,
+                    exc.path,
+                    str(exc),
+                    "Keep stable ordinary package files within the documented digest limits.",
+                )
+            else:
+                if final_identity != pending_identity:
+                    text_inspection_complete = False
+                    add_finding(
+                        findings,
+                        "error",
+                        "package.resource_changed",
+                        root,
+                        "Package content changed while it was reviewed.",
+                        "Keep the package stable and rerun the review.",
+                    )
+                else:
+                    facts["package_identity"] = pending_identity
+                    facts["package_digest_complete"] = True
 
     facts["text_bytes_read"] = text_budget.bytes_read
     facts["text_inspection_complete"] = text_inspection_complete

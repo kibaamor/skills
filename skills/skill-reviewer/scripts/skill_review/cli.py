@@ -23,8 +23,9 @@ from .validate_evals import validate_evals
 from .validate_triggers import validate_triggers
 
 EXIT_CODES = (
-    "Exit codes: 0 completed without error findings; 1 completed with error "
-    "findings; 2 fatal CLI, filesystem, JSON parse, or output failure."
+    "Exit codes: 0 completed without error findings and any aggregate gate passed; "
+    "1 completed with validation or aggregate acceptance error findings; 2 fatal "
+    "CLI, filesystem, JSON parse, or output failure."
 )
 
 
@@ -76,7 +77,9 @@ def add_output_options(
         default="json",
         help="Output format (default: json).",
     )
-    parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
+    parser.add_argument(
+        "--pretty", action="store_true", help="Pretty-print JSON output."
+    )
     parser.add_argument(
         "--max-findings",
         type=positive_int,
@@ -108,7 +111,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     static_parser = subparsers.add_parser(
-        "static", help="Inspect a skill without executing its scripts.", epilog=EXIT_CODES
+        "static",
+        help="Inspect a skill without executing its scripts.",
+        epilog=EXIT_CODES,
     )
     static_parser.add_argument("target", help="Path to the target skill directory.")
     add_output_options(static_parser)
@@ -140,8 +145,9 @@ def build_parser() -> argparse.ArgumentParser:
         "iteration",
         help=(
             "Path containing eval-* run directories; its parent must contain "
-            "evaluation-plan.json and each configuration must contain "
-            "grading.json, timing.json, and provenance.json."
+            "a schema-v1 evaluation-plan.json with acceptance thresholds, and "
+            "each configuration must contain grading.json, timing.json, and "
+            "schema-v1 provenance.json."
         ),
     )
     aggregate_parser.add_argument(

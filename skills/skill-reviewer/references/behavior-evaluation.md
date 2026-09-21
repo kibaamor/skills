@@ -61,15 +61,23 @@ iteration limit:
 
 ```json
 {
+  "schema_version": 1,
   "campaign_id": "review-2026-09-21-a",
   "environment_identity": "client/model/harness identity",
   "candidate": {
     "name": "with_skill",
-    "starting_package_identity": "revision or digest"
+    "starting_package_identity": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
   },
   "baseline": {
     "name": "old_skill",
-    "package_identity": "revision or digest"
+    "package_identity": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "acceptance": {
+    "min_candidate_pass_rate": 0.95,
+    "min_pass_rate_delta": 0.0,
+    "max_time_seconds_delta": 5.0,
+    "max_tokens_delta": 10000,
+    "max_baseline_only": 0
   },
   "evals": [
     {
@@ -81,11 +89,23 @@ iteration limit:
 }
 ```
 
-All shown strings must be non-empty. Configuration names must equal the
-aggregate CLI arguments. Eval IDs and directories must each be unique;
+`schema_version` must be the integer `1`. Package identities must use exactly
+`sha256:` plus 64 lowercase hexadecimal digits. Configuration names must equal
+the aggregate CLI arguments. Eval IDs and directories must each be unique;
 directories are single path components beginning with `eval-`; assertions are
 non-empty and unique after trimming. The planned directory set must exactly
-match the iteration's discovered `eval-*` directories.
+match the iteration's discovered `eval-*` directories. All other shown strings
+must be non-empty.
+
+`acceptance` is a small allowlist. `min_candidate_pass_rate` and
+`min_pass_rate_delta` are required numbers in `[0, 1]` and `[-1, 1]`
+respectively. `max_time_seconds_delta` and `max_tokens_delta` are optional
+non-negative numbers; `max_baseline_only` is an optional non-negative integer.
+The latter caps the total `baseline_only` assertion instances across complete
+pairs. Unknown acceptance fields are rejected. Bounds are inclusive, with only
+one-unit-in-the-last-place tolerance for floating-point boundary arithmetic.
+Omitting an optional maximum deliberately leaves that dimension outside the
+automated gate, so retain and report its metric separately.
 
 ## Bind evidence to the reviewed package
 
@@ -95,23 +115,41 @@ retained provenance. If any required identity cannot be established, report
 that limitation and do not present the run as regression evidence for another
 version.
 
+Obtain package identities from a successful static preflight where
+`package_inventory_complete` and `package_digest_complete` are true. Its
+`skill-package-manifest-v1` digest covers every ordinary package file with
+path-sensitive SHA-256 framing. Text used by the static review is checked
+against its manifest hash, and the tree is verified again after review;
+per-file and whole-package budgets are reported in `facts.limits`. The
+`package_digest_bytes` value is the logical content size of one manifest, not
+cumulative verification I/O. The aggregator validates identity syntax and
+consistency but does not read either package to recreate the digest.
+
+After freezing `evaluation-plan.json`, compute `plan_identity` as SHA-256 over
+its exact UTF-8 bytes. Whitespace and key order therefore affect the identity.
+Do not write this identity back into the plan; doing so would make it
+self-referential.
+
 Write this `provenance.json` beside each configuration's grading and timing
 files:
 
 ```json
 {
+  "schema_version": 1,
   "campaign_id": "review-2026-09-21-a",
   "eval_id": "descriptive-id",
   "configuration": "with_skill",
-  "package_identity": "exact revision or digest for this run",
+  "plan_identity": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "package_identity": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
   "environment_identity": "client/model/harness identity"
 }
 ```
 
-The campaign, eval, configuration, and environment values must bind to the
-plan and directory being aggregated. Baseline package identity must equal the
-frozen plan value. Candidate package identity may change between iterations,
-but it must be identical across every candidate run in one iteration.
+The schema, plan digest, campaign, eval, configuration, and environment values
+must bind to the plan and directory being aggregated. Baseline package identity
+must equal the frozen plan value. Candidate package identity may change between
+iterations, but it must be identical across every candidate run in one
+iteration.
 
 ## Use an isolated paired comparison
 
@@ -200,7 +238,7 @@ blinding when the reviewer could observe configuration identities.
 
 ## Aggregate and interpret
 
-After every run has both `grading.json` and `timing.json`, run:
+After every run has `grading.json`, `timing.json`, and `provenance.json`, run:
 
 ```text
 python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py aggregate /path/to/iteration-N --candidate with_skill --baseline old_skill --pretty --output /path/to/iteration-N/benchmark.json
@@ -210,14 +248,17 @@ The aggregator compares the discovered `eval-*` directories, assertion texts,
 and run provenance with `evaluation-plan.json` fail-closed. It requires the
 plan at the iteration's parent, exact full-suite coverage, both configurations
 for every eval, frozen assertion sets, valid provenance, one candidate package
-identity within the iteration, and the frozen baseline and environment
-identities. Any mismatch makes `facts.complete` false and suppresses
-`facts.delta`.
+identity within the iteration, and the frozen plan, baseline, and environment
+identities. Any evidence mismatch makes `facts.evidence_complete` and its
+compatibility alias `facts.complete` false, sets `facts.delta` to `null`, and
+leaves `facts.gate.status` as `indeterminate`.
 
-The script gives each run equal weight and reports the number of runs, mean,
-and standard deviation for assertion pass rate, time, and tokens. Standard
-deviation is `null` for one run. It reports incomplete or malformed runs rather
-than silently excluding them. It rejects symbolic links, junctions, and other
+The script gives each eval equal weight and reports the number of evals, mean,
+and standard deviation for per-eval assertion pass rate, time, and tokens. It
+does not pool assertions across evals, so an eval with more assertions receives
+the same pass-rate weight as one with fewer. Standard deviation is `null` for
+one eval. It reports incomplete or malformed runs rather than silently
+excluding them. It rejects symbolic links, junctions, and other
 reparse points on the run and output paths it reads or writes. Aggregate output
 must stay inside that same root. The first write refuses to clobber an existing
 entry; use `--force` only to atomically replace an existing ordinary file.
@@ -235,10 +276,19 @@ The JSON result classifies every assertion in a complete matched pair:
 
 Use `facts.assertion_summary` for totals and `facts.assertion_analysis` for the
 per-eval evidence. Only complete pairs with identical assertion text sets
-contribute. When `facts.complete` is false, the analysis may be partial and is
-not regression evidence. These are diagnostic assertion-instance counts, not a
-new quality score; `both_fail` and `baseline_only` do not become findings unless
-the frozen success bar makes them material.
+contribute. When `facts.evidence_complete` is false, the analysis may be partial
+and is not regression evidence. These are diagnostic assertion-instance counts,
+not a new quality score; `both_fail` and `baseline_only` become gate failures
+only when the frozen acceptance contract makes them material.
+
+With complete evidence, the aggregator evaluates every configured acceptance
+check and sets `facts.gate.status` to `passed` or `failed`. A failed gate keeps
+`facts.evidence_complete=true`, preserves `facts.delta` and assertion analysis,
+adds `aggregate.acceptance_failed`, and exits `1`. Invalid or incomplete
+evidence also exits `1`, but the gate is `indeterminate`. Exit `0` means the
+evidence is complete and the gate passed; exit `2` is reserved for fatal CLI,
+filesystem, JSON parsing, or output failures. Every structured CLI result uses
+top-level `schema_version: 1`.
 
 Use `facts.coverage`, `facts.provenance`, and `facts.identities` to retain the
 validated campaign bindings with the benchmark. Aggregation proves consistency

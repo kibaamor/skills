@@ -53,19 +53,22 @@ It never executes target scripts and reports when special files, changes, or
 scan limits prevent complete inspection.
 
 Before relying on the result, require `summary.truncated` to be `false`,
-`facts.package_inventory_complete` to be `true`, and
-`facts.text_inspection_complete` to be `true`. When findings are truncated,
-rerun with `--max-findings` set to at least `summary.total`; otherwise report
-the exact completeness gap. Treat the output as mechanical facts and review
-leads, not as judgment or YAML schema validation. Use a stable package snapshot.
+`facts.package_inventory_complete`, `facts.package_digest_complete`, and
+`facts.text_inspection_complete` to be `true`, and `facts.package_identity` to
+contain a `sha256:` identity. When findings are truncated, rerun with
+`--max-findings` set to at least `summary.total`; otherwise report the exact
+completeness gap. The digest covers the paths and bytes of every ordinary file
+in the package; reviewed text is checked against its per-file content hash, and
+the identity is published only when bounded end-of-review verification passes.
+Treat the output as mechanical facts and review leads, not as judgment or YAML
+schema validation. Use a stable package snapshot.
 
 After the boundary preflight:
 
-1. Record the resolved root, declared name, requested scope, and source revision
-   or snapshot identifier when available. Record a stable digest only when the
-   environment or evaluation harness actually provides one. Otherwise identify
-   the exact path and revision used and report the identity limitation rather
-   than inventing a digest.
+1. Record the resolved root, declared name, requested scope, and
+   `facts.package_identity`. Carry that exact identity into retained evaluation
+   provenance. If the digest is incomplete, identify the exact path and revision
+   used and report the identity limitation rather than inventing an identity.
 2. Read the complete target `SKILL.md` and its agent-facing metadata.
 3. Account for every file in the full package inventory, including agent files
    and custom top-level directories. Follow every instruction-bearing pointer

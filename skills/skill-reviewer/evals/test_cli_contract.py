@@ -10,10 +10,15 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from _support import SCRIPT, junction_or_fail, symlink_or_skip
+from _support import REVIEW, SCRIPT, junction_or_fail, symlink_or_skip
 
 
 class InterfaceTests(unittest.TestCase):
+    def test_structured_results_declare_schema_version(self) -> None:
+        result = REVIEW.finalize("test", Path("subject"), {}, [], 100)
+
+        self.assertEqual(result["schema_version"], 1)
+
     def test_junction_creation_failure_is_not_skipped(self) -> None:
         completed = subprocess.CompletedProcess(
             args=["cmd.exe", "mklink"],
@@ -51,10 +56,11 @@ class InterfaceTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertIn("Exit codes:", completed.stdout)
+            normalized_help = " ".join(completed.stdout.split())
+            self.assertIn("Exit codes:", normalized_help)
             self.assertIn(
                 "2 fatal CLI, filesystem, JSON parse, or output failure",
-                completed.stdout,
+                normalized_help,
             )
 
     def test_output_help_does_not_claim_truncated_results_are_complete(self) -> None:

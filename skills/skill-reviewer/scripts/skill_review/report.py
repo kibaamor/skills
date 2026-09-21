@@ -12,6 +12,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+RESULT_SCHEMA_VERSION = 1
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -61,6 +63,7 @@ def finalize(
     counts = Counter(item.severity for item in ordered)
     visible = ordered[:max_findings]
     return {
+        "schema_version": RESULT_SCHEMA_VERSION,
         "tool": "skill-reviewer/review_skill.py",
         "operation": operation,
         "subject": str(subject),
@@ -94,11 +97,12 @@ def render_text(result: dict[str, Any]) -> str:
             "run_summary": facts["run_summary"],
             "delta": facts["delta"],
             "assertion_summary": facts["assertion_summary"],
+            "gate": facts["gate"],
+            "evidence_complete": facts["evidence_complete"],
             "complete": facts["complete"],
         }
         lines.append(
-            "metrics="
-            + json.dumps(metrics, ensure_ascii=False, separators=(",", ":"))
+            "metrics=" + json.dumps(metrics, ensure_ascii=False, separators=(",", ":"))
         )
     for finding in result["findings"]:
         location = finding["path"]

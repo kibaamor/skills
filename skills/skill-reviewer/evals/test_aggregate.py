@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -26,29 +27,47 @@ from _support import (
 class AggregateTests(unittest.TestCase):
     campaign_id = "campaign-one"
     environment_identity = "test-environment"
-    candidate_identity = "candidate-v2"
-    baseline_identity = "baseline-v1"
+    candidate_starting_identity = "sha256:" + ("1" * 64)
+    candidate_identity = "sha256:" + ("2" * 64)
+    baseline_identity = "sha256:" + ("3" * 64)
+
+    def write_plan_data(self, root: Path, plan: dict[str, object]) -> str:
+        plan_text = json.dumps(plan)
+        write(root.parent / "evaluation-plan.json", plan_text)
+        plan_identity = (
+            "sha256:" + hashlib.sha256(plan_text.encode("utf-8")).hexdigest()
+        )
+        for provenance_path in root.glob("eval-*/*/provenance.json"):
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["plan_identity"] = plan_identity
+            write(provenance_path, json.dumps(provenance))
+        return plan_identity
 
     def write_plan(
         self,
         root: Path,
         eval_name: str,
         grading_data: dict[str, object],
-    ) -> None:
+    ) -> str:
         path = root.parent / "evaluation-plan.json"
         if path.exists():
             plan = json.loads(path.read_text(encoding="utf-8"))
         else:
             plan = {
+                "schema_version": 1,
                 "campaign_id": self.campaign_id,
                 "environment_identity": self.environment_identity,
                 "candidate": {
                     "name": "with_skill",
-                    "starting_package_identity": "candidate-v1",
+                    "starting_package_identity": self.candidate_starting_identity,
                 },
                 "baseline": {
                     "name": "old_skill",
                     "package_identity": self.baseline_identity,
+                },
+                "acceptance": {
+                    "min_candidate_pass_rate": 0,
+                    "min_pass_rate_delta": -1,
                 },
                 "evals": [],
             }
@@ -67,7 +86,7 @@ class AggregateTests(unittest.TestCase):
                     "assertions": assertion_texts or ["Has result"],
                 }
             )
-        write(path, json.dumps(plan))
+        return self.write_plan_data(root, plan)
 
     def write_run(
         self,
@@ -78,7 +97,7 @@ class AggregateTests(unittest.TestCase):
         tokens: int,
         duration_ms: int,
     ) -> None:
-        self.write_plan(root, eval_name, grading_data)
+        plan_identity = self.write_plan(root, eval_name, grading_data)
         run = root / eval_name / configuration
         write(run / "grading.json", json.dumps(grading_data))
         write(
@@ -94,9 +113,11 @@ class AggregateTests(unittest.TestCase):
             run / "provenance.json",
             json.dumps(
                 {
+                    "schema_version": 1,
                     "campaign_id": self.campaign_id,
                     "eval_id": eval_name.removeprefix("eval-"),
                     "configuration": configuration,
+                    "plan_identity": plan_identity,
                     "package_identity": package_identity,
                     "environment_identity": self.environment_identity,
                 }
@@ -167,14 +188,25 @@ class AggregateTests(unittest.TestCase):
                 2000,
             )
             result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
+            plan_text = (root.parent / "evaluation-plan.json").read_text(
+                encoding="utf-8"
+            )
+            plan_identity = (
+                "sha256:" + hashlib.sha256(plan_text.encode("utf-8")).hexdigest()
+            )
 
         self.assertEqual(status, 0)
+        self.assertEqual(result["schema_version"], 1)
         self.assertTrue(result["facts"]["complete"])
+        self.assertTrue(result["facts"]["evidence_complete"])
+        self.assertEqual(result["facts"]["gate"]["status"], "passed")
         self.assertEqual(result["facts"]["delta"]["pass_rate"], 1.0)
         self.assertEqual(
             result["facts"]["campaign"],
             {
+                "schema_version": 1,
                 "id": self.campaign_id,
+                "plan_identity": plan_identity,
                 "environment_identity": self.environment_identity,
             },
         )
@@ -190,13 +222,282 @@ class AggregateTests(unittest.TestCase):
             result["facts"]["identities"],
             {
                 "candidate": self.candidate_identity,
-                "candidate_starting": "candidate-v1",
+                "candidate_starting": self.candidate_starting_identity,
                 "baseline": self.baseline_identity,
                 "environment": self.environment_identity,
             },
         )
         self.assertEqual(len(result["facts"]["provenance"]), 2)
         self.assertTrue(all(item["valid"] for item in result["facts"]["provenance"]))
+        self.assertEqual(
+            result["facts"]["gate"]["checks"],
+            [
+                {
+                    "name": "min_candidate_pass_rate",
+                    "operator": ">=",
+                    "threshold": 0.0,
+                    "actual": 1.0,
+                    "passed": True,
+                },
+                {
+                    "name": "min_pass_rate_delta",
+                    "operator": ">=",
+                    "threshold": -1.0,
+                    "actual": 1.0,
+                    "passed": True,
+                },
+            ],
+        )
+
+    def test_acceptance_failure_preserves_complete_evidence_and_delta(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            failed = grading([("Has result", False, "No output")])
+            self.write_run(root, "eval-one", "with_skill", failed, 900, 2000)
+            self.write_run(root, "eval-one", "old_skill", failed, 900, 2000)
+            plan_path = root.parent / "evaluation-plan.json"
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan["acceptance"] = {
+                "min_candidate_pass_rate": 0.5,
+                "min_pass_rate_delta": 0,
+            }
+            self.write_plan_data(root, plan)
+
+            result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
+            truncated, truncated_status = REVIEW.aggregate(
+                root, "with_skill", "old_skill", 0
+            )
+            completed = self.run_aggregate_cli(root)
+
+        self.assertEqual(status, 1)
+        self.assertTrue(result["facts"]["evidence_complete"])
+        self.assertTrue(result["facts"]["complete"])
+        self.assertIsNotNone(result["facts"]["delta"])
+        self.assertEqual(result["facts"]["gate"]["status"], "failed")
+        checks = {item["name"]: item for item in result["facts"]["gate"]["checks"]}
+        self.assertFalse(checks["min_candidate_pass_rate"]["passed"])
+        self.assertTrue(checks["min_pass_rate_delta"]["passed"])
+        self.assertIn(
+            "aggregate.acceptance_failed",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertEqual(truncated_status, 1)
+        self.assertEqual(truncated["findings"], [])
+        self.assertTrue(truncated["summary"]["truncated"])
+        self.assertTrue(truncated["facts"]["evidence_complete"])
+        self.assertIsNotNone(truncated["facts"]["delta"])
+        self.assertEqual(truncated["facts"]["gate"]["status"], "failed")
+        self.assertEqual(completed.returncode, 1, completed.stderr)
+        self.assertEqual(
+            json.loads(completed.stdout)["facts"]["gate"], result["facts"]["gate"]
+        )
+
+    def test_acceptance_numeric_boundaries_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            self.write_complete_pair(root)
+            plan_path = root.parent / "evaluation-plan.json"
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan["acceptance"] = {
+                "min_candidate_pass_rate": 1,
+                "min_pass_rate_delta": 1,
+                "max_time_seconds_delta": 1,
+                "max_tokens_delta": 300,
+                "max_baseline_only": 0,
+            }
+            self.write_plan_data(root, plan)
+
+            result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(result["facts"]["gate"]["status"], "passed")
+        self.assertTrue(
+            all(check["passed"] for check in result["facts"]["gate"]["checks"])
+        )
+
+    def test_acceptance_does_not_hide_material_near_threshold_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            failed = grading([("Has result", False, "No output")])
+            self.write_run(root, "eval-one", "with_skill", failed, 1200, 3000)
+            self.write_run(root, "eval-one", "old_skill", failed, 900, 2000)
+            plan_path = root.parent / "evaluation-plan.json"
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan["acceptance"] = {
+                "min_candidate_pass_rate": 1e-10,
+                "min_pass_rate_delta": -1,
+            }
+            self.write_plan_data(root, plan)
+
+            result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
+
+        self.assertEqual(status, 1)
+        self.assertEqual(result["facts"]["gate"]["status"], "failed")
+        self.assertFalse(result["facts"]["gate"]["checks"][0]["passed"])
+
+    def test_rejects_invalid_acceptance_contract(self) -> None:
+        mutations = {
+            "missing required": {"min_candidate_pass_rate": 0},
+            "unknown field": {
+                "min_candidate_pass_rate": 0,
+                "min_pass_rate_delta": -1,
+                "custom_rule": 1,
+            },
+            "candidate below range": {
+                "min_candidate_pass_rate": -0.0001,
+                "min_pass_rate_delta": -1,
+            },
+            "candidate above range": {
+                "min_candidate_pass_rate": 1.0001,
+                "min_pass_rate_delta": -1,
+            },
+            "delta below range": {
+                "min_candidate_pass_rate": 0,
+                "min_pass_rate_delta": -1.0001,
+            },
+            "delta above range": {
+                "min_candidate_pass_rate": 0,
+                "min_pass_rate_delta": 1.0001,
+            },
+            "negative time": {
+                "min_candidate_pass_rate": 0,
+                "min_pass_rate_delta": -1,
+                "max_time_seconds_delta": -0.0001,
+            },
+            "negative tokens": {
+                "min_candidate_pass_rate": 0,
+                "min_pass_rate_delta": -1,
+                "max_tokens_delta": -1,
+            },
+            "fractional baseline only": {
+                "min_candidate_pass_rate": 0,
+                "min_pass_rate_delta": -1,
+                "max_baseline_only": 0.0,
+            },
+        }
+        for label, acceptance in mutations.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary) / "iteration"
+                    self.write_complete_pair(root)
+                    plan_path = root.parent / "evaluation-plan.json"
+                    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+                    plan["acceptance"] = acceptance
+                    write(plan_path, json.dumps(plan))
+
+                    result, status = REVIEW.aggregate(
+                        root, "with_skill", "old_skill", 100
+                    )
+
+                self.assertEqual(status, 1)
+                self.assertFalse(result["facts"]["evidence_complete"])
+                self.assertIsNone(result["facts"]["delta"])
+                self.assertEqual(result["facts"]["gate"]["status"], "indeterminate")
+                self.assertIn(
+                    "aggregate.plan_invalid",
+                    {finding["code"] for finding in result["findings"]},
+                )
+
+    def test_requires_v1_plan_and_provenance_schema(self) -> None:
+        for target in ("plan", "provenance"):
+            for label, value in (
+                ("missing", None),
+                ("boolean", True),
+                ("float", 1.0),
+                ("other version", 2),
+            ):
+                with self.subTest(target=target, value=label):
+                    with tempfile.TemporaryDirectory() as temporary:
+                        root = Path(temporary) / "iteration"
+                        self.write_complete_pair(root)
+                        path = (
+                            root.parent / "evaluation-plan.json"
+                            if target == "plan"
+                            else root / "eval-one" / "with_skill" / "provenance.json"
+                        )
+                        data = json.loads(path.read_text(encoding="utf-8"))
+                        if label == "missing":
+                            data.pop("schema_version")
+                        else:
+                            data["schema_version"] = value
+                        write(path, json.dumps(data))
+
+                        result, status = REVIEW.aggregate(
+                            root, "with_skill", "old_skill", 100
+                        )
+
+                    self.assertEqual(status, 1)
+                    self.assertEqual(result["schema_version"], 1)
+                    self.assertFalse(result["facts"]["evidence_complete"])
+                    self.assertEqual(result["facts"]["gate"]["status"], "indeterminate")
+                    expected = (
+                        "aggregate.plan_invalid"
+                        if target == "plan"
+                        else "aggregate.run_incomplete"
+                    )
+                    self.assertIn(
+                        expected, {finding["code"] for finding in result["findings"]}
+                    )
+
+    def test_binds_every_run_to_exact_plan_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            self.write_complete_pair(root)
+            plan_path = root.parent / "evaluation-plan.json"
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan["acceptance"]["min_candidate_pass_rate"] = 0.25
+            write(plan_path, json.dumps(plan))
+
+            result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
+
+        self.assertEqual(status, 1)
+        self.assertFalse(result["facts"]["evidence_complete"])
+        self.assertIsNone(result["facts"]["delta"])
+        self.assertEqual(result["facts"]["gate"]["status"], "indeterminate")
+        self.assertTrue(
+            all(check["passed"] is None for check in result["facts"]["gate"]["checks"])
+        )
+        self.assertIn(
+            "aggregate.provenance_mismatch",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_requires_sha256_package_identities(self) -> None:
+        targets = {
+            "candidate plan": ("plan", "candidate", "starting_package_identity"),
+            "baseline plan": ("plan", "baseline", "package_identity"),
+            "candidate provenance": ("provenance", None, "package_identity"),
+        }
+        for label, (target, section, field) in targets.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary) / "iteration"
+                    self.write_complete_pair(root)
+                    path = (
+                        root.parent / "evaluation-plan.json"
+                        if target == "plan"
+                        else root / "eval-one" / "with_skill" / "provenance.json"
+                    )
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    if section is None:
+                        data[field] = "sha256:" + ("a" * 63)
+                    else:
+                        data[section][field] = "sha256:" + ("a" * 63)
+                    write(path, json.dumps(data))
+
+                    result, status = REVIEW.aggregate(
+                        root, "with_skill", "old_skill", 100
+                    )
+
+                self.assertEqual(status, 1)
+                expected = (
+                    "aggregate.plan_invalid"
+                    if target == "plan"
+                    else "aggregate.run_incomplete"
+                )
+                self.assertIn(
+                    expected, {finding["code"] for finding in result["findings"]}
+                )
 
     def test_requires_a_safe_frozen_evaluation_plan(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -208,7 +509,11 @@ class AggregateTests(unittest.TestCase):
 
         self.assertEqual(status, 1)
         self.assertFalse(result["facts"]["complete"])
+        self.assertFalse(result["facts"]["evidence_complete"])
         self.assertIsNone(result["facts"]["delta"])
+        self.assertEqual(
+            result["facts"]["gate"], {"status": "indeterminate", "checks": []}
+        )
         self.assertIn(
             "aggregate.plan_invalid",
             {finding["code"] for finding in result["findings"]},
@@ -301,7 +606,11 @@ class AggregateTests(unittest.TestCase):
             "eval": ("provenance", "eval_id", "other-eval"),
             "configuration": ("provenance", "configuration", "with_skill"),
             "environment": ("provenance", "environment_identity", "other-env"),
-            "baseline package": ("provenance", "package_identity", "other-package"),
+            "baseline package": (
+                "provenance",
+                "package_identity",
+                "sha256:" + ("4" * 64),
+            ),
             "assertions": ("plan", "assertions", ["Other assertion"]),
         }
         for label, (target, field, value) in mutations.items():
@@ -348,7 +657,7 @@ class AggregateTests(unittest.TestCase):
                 )
             path = root / "eval-two" / "with_skill" / "provenance.json"
             provenance = json.loads(path.read_text(encoding="utf-8"))
-            provenance["package_identity"] = "candidate-v3"
+            provenance["package_identity"] = "sha256:" + ("4" * 64)
             write(path, json.dumps(provenance))
 
             result, status = REVIEW.aggregate(root, "with_skill", "old_skill", 100)
@@ -465,6 +774,8 @@ class AggregateTests(unittest.TestCase):
         self.assertIn("with_skill", metrics["run_summary"])
         self.assertEqual(metrics["delta"]["pass_rate"], 1.0)
         self.assertEqual(metrics["assertion_summary"]["candidate_only"], 1)
+        self.assertTrue(metrics["evidence_complete"])
+        self.assertEqual(metrics["gate"]["status"], "passed")
         self.assertTrue(metrics["complete"])
 
     def test_json_output_safely_escapes_unpaired_surrogates(self) -> None:
