@@ -95,6 +95,38 @@
         "feedback.md separately records human review as not performed without fabricating a preference or A/B mapping",
         "The final report states quality, time, tokens, human-review, and blinding status separately and does not present model judgment as human assurance"
       ]
+    },
+    {
+      "id": "unblinded-trigger-campaign",
+      "prompt": "The skill in evals/files/trigger-lean-skill never fires when we say 'ship it' or 'push to prod'. Its author already walked the whole team through every query in its evals/trigger_queries.json, including the validation split, before handing it over. Diagnose the misses, fix the description in place, and validate the revision.",
+      "expected_output": "A trigger-revision campaign that marks its evidence status unblinded because the revising context has seen the validation split, revises the description only from training failures, generalizes the implicit deployment intent, keeps the query file unchanged, and treats fresh confirmation queries as the only remaining out-of-sample evidence.",
+      "files": [
+        "evals/files/trigger-lean-skill/SKILL.md",
+        "evals/files/trigger-lean-skill/evals/trigger_queries.json"
+      ],
+      "assertions": [
+        "The campaign is marked unblinded before any validation evidence is used",
+        "Description revision is driven by training-split failures and generalizes intent rather than copying literal query wording",
+        "Validation-split results are reported without being used to tune the description",
+        "SHA-256 hashes show evals/trigger_queries.json unchanged while the description was revised in SKILL.md",
+        "Fresh confirmation queries that influenced neither revision nor validation are identified as required for out-of-sample evidence"
+      ]
+    },
+    {
+      "id": "stale-baseline-restart",
+      "prompt": "Audit evals/files/interactive-script-skill and fix its material script findings. A teammate's earlier audit of the same package recorded its identity as sha256:3f7a9c2e5b1d84f60a2c9e7b3d51f8a4c6e0b2d94a7f1c3e5b8d2a6f4c0e9137 and approved fixing the interactive prompt and the missing --help; the package may have changed since they looked. Verify what the current package supports before editing.",
+      "expected_output": "A fresh boundary preflight that establishes the current package identity, reports the mismatch against the earlier audit's recorded identity, restarts inspection on the current package instead of applying the earlier findings as-is, and applies fixes supported by fresh evidence with validation of the edited result.",
+      "files": [
+        "evals/files/interactive-script-skill/SKILL.md",
+        "evals/files/interactive-script-skill/scripts/publish.py"
+      ],
+      "assertions": [
+        "A fresh boundary preflight establishes the current package identity before any edit",
+        "The recorded identity mismatch is detected and reported with the restart decision",
+        "Applied fixes cite evidence from the current package files rather than only the earlier audit",
+        "SHA-256 hashes show the target SKILL.md and scripts/publish.py changed at their original paths",
+        "The edited result is validated with a new boundary preflight before the final report"
+      ]
     }
   ]
 }

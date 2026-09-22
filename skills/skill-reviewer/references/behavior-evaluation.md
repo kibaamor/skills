@@ -131,8 +131,9 @@ version.
 
 Obtain package identities from a successful static preflight where
 `package_inventory_complete` and `package_digest_complete` are true. Its
-`skill-package-manifest-v1` digest covers every ordinary package file with
-path-sensitive SHA-256 framing; per-file and whole-package budgets are reported
+`skill-package-manifest-v1` digest covers every ordinary package file except
+Python bytecode caches (`__pycache__`, `.pyc`, `.pyo`) with path-sensitive
+SHA-256 framing; per-file and whole-package budgets are reported
 in `facts.limits`. `package_digest_bytes` is the number of ordinary-file content
 bytes hashed against `limits.total_digest_bytes`. When the digest is complete,
 it equals the sum of package file sizes; it excludes manifest framing and may
@@ -312,10 +313,9 @@ With complete evidence, the aggregator evaluates every configured acceptance
 check and sets `facts.gate.status` to `passed` or `failed`. A failed gate keeps
 `facts.evidence_complete=true`, preserves `facts.delta` and assertion analysis,
 adds `aggregate.acceptance_failed`, and exits `1`. Invalid or incomplete
-evidence also exits `1`, but the gate is `indeterminate`. Exit `0` means the
-evidence is complete and the gate passed; exit `2` is reserved for fatal CLI,
-filesystem, JSON parsing, or output failures. Every structured CLI result uses
-top-level `schema_version: 1`.
+evidence also exits `1`, but the gate is `indeterminate`; complete evidence
+with a passed gate exits `0`. The fatal exit-`2` class is enumerated in every
+subcommand's `--help`.
 
 Use `facts.coverage`, `facts.provenance`, and `facts.identities` to retain the
 validated campaign bindings with the benchmark. Aggregation proves consistency

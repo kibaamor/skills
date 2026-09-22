@@ -112,6 +112,45 @@ class StaticReviewTests(unittest.TestCase):
         )
         self.assertEqual(renamed_result["facts"]["package_identity"], expected_identity)
 
+    def test_bytecode_caches_do_not_change_package_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "bytecode-cache-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "bytecode-cache-skill",
+                    body="Run [scripts/helper.py](scripts/helper.py) for the task.",
+                ),
+            )
+            write(root / "scripts" / "helper.py", "def run() -> None:\n    pass\n")
+
+            baseline, baseline_status = REVIEW.static_review(root, 100)
+            write(
+                root / "scripts" / "__pycache__" / "helper.cpython-313.pyc",
+                "\x00\x00\x00\x00",
+            )
+            write(root / "scripts" / "legacy.cpython-313.pyc", "\x00\x00\x00\x00")
+            polluted, polluted_status = REVIEW.static_review(root, 100)
+
+        self.assertEqual((baseline_status, polluted_status), (0, 0))
+        self.assertEqual(
+            baseline["facts"]["package_identity"],
+            polluted["facts"]["package_identity"],
+        )
+        self.assertEqual(
+            baseline["facts"]["package_files"],
+            polluted["facts"]["package_files"],
+        )
+        self.assertEqual(
+            baseline["facts"]["package_digest_bytes"],
+            polluted["facts"]["package_digest_bytes"],
+        )
+        self.assertEqual(baseline["findings"], polluted["findings"])
+        self.assertEqual(
+            polluted["facts"]["resource_files"],
+            {"references": 0, "scripts": 1, "assets": 0, "evals": 0},
+        )
+
     def test_inventory_reads_instruction_text_outside_standard_directories(
         self,
     ) -> None:
@@ -279,7 +318,8 @@ class StaticReviewTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(result["facts"]["resource_files"]["references"], 1)
         self.assertEqual(result["facts"]["resource_files"]["scripts"], 0)
-        self.assertEqual(result["facts"]["package_files"], 3)
+        self.assertEqual(result["facts"]["package_files"], 2)
+        self.assertTrue(result["facts"]["package_inventory_complete"])
         self.assertTrue(result["facts"]["resource_inventory_complete"])
 
     def test_bounded_reader_rejects_same_size_change_during_read(self) -> None:

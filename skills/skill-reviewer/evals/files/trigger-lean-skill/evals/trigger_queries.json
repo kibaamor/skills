@@ -1,0 +1,52 @@
+[
+  {
+    "query": "Ship it — the build is green.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Push to prod once CI finishes.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Please run the Acme deployment pipeline now.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "The staging build keeps failing, can you debug it?",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Update the Terraform for the new region.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Rebuild my local dev environment.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Go live with version 3.2.0.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "Cut the release tonight; QA signed off.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "Rotate the deploy credentials before Friday.",
+    "should_trigger": false,
+    "split": "validation"
+  },
+  {
+    "query": "Estimate the infra cost for the new region.",
+    "should_trigger": false,
+    "split": "validation"
+  }
+]

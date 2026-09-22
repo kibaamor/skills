@@ -400,7 +400,12 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
 
     inventory_issues: list[InventoryIssue] = []
     inventory_state = InventoryState()
-    package_files = iter_files(root, ".", inventory_issues, inventory_state)
+    package_files = [
+        path
+        for path in iter_files(root, ".", inventory_issues, inventory_state)
+        if "__pycache__" not in path.relative_to(root).parts
+        and path.suffix.lower() not in {".pyc", ".pyo"}
+    ]
     all_resource_files: dict[str, list[Path]] = {}
     for directory in ("references", "scripts", "assets", "evals"):
         base = root / directory
@@ -420,11 +425,7 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
             files = []
         else:
             files = [
-                path
-                for path in package_files
-                if (path == base or base in path.parents)
-                and "__pycache__" not in path.relative_to(base).parts
-                and path.suffix.lower() not in {".pyc", ".pyo"}
+                path for path in package_files if path == base or base in path.parents
             ]
         all_resource_files[directory] = files
         facts["resource_files"][directory] = len(files)
