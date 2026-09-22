@@ -73,6 +73,21 @@ SCRIPT_SUFFIXES = {
     ".sh",
     ".ts",
 }
+CACHE_DIRECTORY_NAMES = frozenset(
+    {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+)
+CACHE_FILE_NAMES = frozenset({".ds_store", "thumbs.db"})
+CACHE_FILE_SUFFIXES = frozenset({".pyc", ".pyo"})
+
+
+def is_cache_artifact(path: Path, root: Path) -> bool:
+    """Return whether path is a regenerated cache artifact, not package content."""
+    relative = path.relative_to(root)
+    return (
+        any(part.lower() in CACHE_DIRECTORY_NAMES for part in relative.parts)
+        or relative.name.lower() in CACHE_FILE_NAMES
+        or path.suffix.lower() in CACHE_FILE_SUFFIXES
+    )
 
 
 def first_actionable_match(text: str, pattern: re.Pattern[str]) -> re.Match[str] | None:
@@ -403,8 +418,7 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
     package_files = [
         path
         for path in iter_files(root, ".", inventory_issues, inventory_state)
-        if "__pycache__" not in path.relative_to(root).parts
-        and path.suffix.lower() not in {".pyc", ".pyo"}
+        if not is_cache_artifact(path, root)
     ]
     all_resource_files: dict[str, list[Path]] = {}
     for directory in ("references", "scripts", "assets", "evals"):

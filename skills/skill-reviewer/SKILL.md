@@ -48,8 +48,9 @@ limits prevent complete inspection.
 
 The package passed to preflight becomes the review baseline. From the start of
 preflight until findings are formed, its path set, directory-entry types, link
-or reparse-point state and targets, and regular-file bytes must not change. In
-read-only mode, keep it unchanged until the final report is complete.
+or reparse-point state and targets, and regular-file bytes must not change,
+apart from regenerated cache artifacts the digest excludes. In read-only mode,
+keep it unchanged until the final report is complete.
 
 The freeze is a design assumption of the bundled tooling, not a guarantee the
 tool enforces: the workflow relies on the contract rather than monitoring the
@@ -68,9 +69,9 @@ Before relying on the result, require `summary.truncated` to be `false`,
 contain a `sha256:` identity. When findings are truncated, rerun with
 `--max-findings` set to at least `summary.total`; otherwise report the exact
 completeness gap. The digest covers the paths and bytes of every ordinary file
-in the package, excluding Python bytecode caches (`__pycache__`, `.pyc`,
-`.pyo`) that running package code creates, and establishes its identity once.
-Treat the output as
+in the package, excluding regenerated cache artifacts — Python bytecode caches,
+tool cache directories, and OS folder metadata — and establishes its identity
+once. Treat the output as
 mechanical facts and review leads, not as judgment or YAML schema validation.
 
 After the boundary preflight:

@@ -112,13 +112,13 @@ class StaticReviewTests(unittest.TestCase):
         )
         self.assertEqual(renamed_result["facts"]["package_identity"], expected_identity)
 
-    def test_bytecode_caches_do_not_change_package_identity(self) -> None:
+    def test_cache_artifacts_do_not_change_package_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "bytecode-cache-skill"
+            root = Path(temporary) / "cache-artifact-skill"
             write(
                 root / "SKILL.md",
                 skill_text(
-                    "bytecode-cache-skill",
+                    "cache-artifact-skill",
                     body="Run [scripts/helper.py](scripts/helper.py) for the task.",
                 ),
             )
@@ -130,6 +130,17 @@ class StaticReviewTests(unittest.TestCase):
                 "\x00\x00\x00\x00",
             )
             write(root / "scripts" / "legacy.cpython-313.pyc", "\x00\x00\x00\x00")
+            write(root / "scripts" / ".pytest_cache" / "entry.json", '{"tags": {}}\n')
+            write(root / "scripts" / ".PYTEST_CACHE" / "case.json", "{}\n")
+            write(
+                root / ".pytest_cache" / "CACHEDIR.TAG",
+                "Signature: 8a477f597d28d172785f963c3c1bfc9c12afe7e2\n",
+            )
+            write(root / ".mypy_cache" / "index.json", '{"gateways": {}}\n')
+            write(root / ".ruff_cache" / "version.txt", "0.5.0\n")
+            write(root / ".DS_Store", "\x00\x00\x00\x00")
+            write(root / "references" / ".DS_Store", "\x00\x00\x00\x00")
+            write(root / "Thumbs.db", "\x00\x00\x00\x00")
             polluted, polluted_status = REVIEW.static_review(root, 100)
 
         self.assertEqual((baseline_status, polluted_status), (0, 0))
