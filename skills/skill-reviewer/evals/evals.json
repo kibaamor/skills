@@ -18,21 +18,21 @@
     },
     {
       "id": "remediate-agent-script",
-      "prompt": "Audit the existing Agent Skill in evals/files/interactive-script-skill. If the evidence confirms material script-interface findings, fix them in a revised copy under the run output directory and validate the result. Keep the skill's domain purpose unchanged.",
-      "expected_output": "An evidence-backed review followed by a focused revised copy whose script uses explicit non-interactive inputs, has useful --help and structured output, plus validation evidence; the immutable source fixture remains unchanged.",
+      "prompt": "Audit the existing Agent Skill in evals/files/interactive-script-skill. If the evidence confirms material script-interface findings, fix them directly in that target skill and validate the edited result. Keep the skill's domain purpose unchanged.",
+      "expected_output": "An evidence-backed review followed by focused in-place remediation of the target skill so its script uses explicit non-interactive inputs, has useful --help and structured output, plus validation evidence tied to the edited target.",
       "files": [
         "evals/files/interactive-script-skill/SKILL.md",
         "evals/files/interactive-script-skill/scripts/publish.py"
       ],
       "assertions": [
         "Material script changes are tied to review findings established before editing",
-        "SHA-256 hashes of every source fixture are identical before and after the run",
-        "A filesystem inventory shows the revised skill exists only in the run output directory",
-        "The revised SKILL.md invokes the script with explicit non-interactive arguments",
-        "Subprocess checks prove the revised script does not prompt interactively and documents its arguments with --help",
+        "SHA-256 hashes show the target SKILL.md and scripts/publish.py changed at their original paths",
+        "A filesystem inventory shows no revised or candidate skill copy under the run output directory",
+        "The target SKILL.md invokes the script with explicit non-interactive arguments",
+        "Subprocess checks prove the edited script does not prompt interactively and documents its arguments with --help",
         "A successful subprocess emits valid machine-readable stdout without mixing diagnostics into it",
         "A missing required argument exits nonzero with an actionable stderr diagnostic",
-        "The revised skill passes structural validation and the script is tested on a safe fixture"
+        "The edited target skill passes structural validation and the script is tested on a safe fixture"
       ]
     },
     {

@@ -29,7 +29,7 @@ out-of-sample evidence.
 
 Use an existing target `evals/trigger_queries.json` as read-only input. Store a
 new or modified query set under the isolated evaluation workspace so the
-preflighted target remains unchanged.
+target remains unchanged while review findings are formed.
 
 Start with about 20 labeled queries: 8-10 expected to trigger and 8-10 expected
 not to trigger. Adjust the count when cost or domain breadth warrants it.
@@ -93,19 +93,18 @@ remediation.
 2. Evaluate the current description on the training split. Diagnose those
    failures, generalize the missing intent for false negatives, and sharpen the
    adjacent-task boundary for false positives.
-3. Revise concepts, not literal query wording. Run every candidate on the
-   training split with the frozen protocol, diagnose its failures, and save it.
-   Create each revision in a new isolated candidate copy and freeze it before
-   routing runs. Stop when the training bar passes or at the fixed iteration
-   limit; about five candidates is a useful default.
-4. After candidates are frozen, have the independent evaluator run one
-   validation campaign for each candidate using the frozen per-query run count
-   and threshold. Select a candidate that meets both frozen error-rate bars
-   without another revision round; an earlier candidate may win. If none meets
-   them, report the unmet bar rather than claiming the description was
-   optimized.
-5. Confirm a candidate that passes both bars on 5-10 new positive and near-miss
-   queries that influenced neither revision nor selection. If confirmation
+3. Revise concepts, not literal query wording. Apply each revision directly to
+   the original target, finish the edit, and freeze it with a new boundary
+   preflight before running the training split. Diagnose failures and repeat in
+   place until the training bar passes or the fixed iteration limit is reached;
+   about five revisions is a useful default.
+4. When the current frozen revision passes the training bar, have the
+   independent evaluator run one validation campaign using the frozen per-query
+   run count and threshold. If it misses either error-rate bar, report the unmet
+   bar and start a new campaign before revising again rather than optimizing on
+   the validation failures.
+5. Confirm a revision that passes both bars on 5-10 new positive and near-miss
+   queries that influenced neither revision nor validation. If confirmation
    misses the bars, report it and start a new campaign before further revision.
 
 Report false-positive and false-negative rates separately. A single accuracy

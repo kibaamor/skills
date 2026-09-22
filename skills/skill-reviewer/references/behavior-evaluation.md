@@ -18,7 +18,7 @@ detail, and include at least one malformed, boundary, or ambiguous case.
 
 Use the target skill's `evals/evals.json` as read-only input when it exists.
 Store new or modified definitions and fixtures under the isolated evaluation
-workspace, leaving the preflighted target unchanged:
+workspace, leaving the target unchanged while review findings are formed:
 
 ```json
 {
@@ -59,13 +59,15 @@ file dimensions; use an LLM judge for semantic claims.
 
 Before the first paired run, write an immutable `evaluation-plan.json` at the
 workspace root. Record a campaign identifier; configuration labels, the fixed
-baseline identity, and the candidate's starting identity; the execution
+baseline identity, and the revised target's starting identity under the
+`candidate` configuration; the execution
 environment; case IDs, prompts, inputs, and output contracts; each case's
 assertion texts; acceptable quality, time, and token deltas; and a maximum
 iteration count. Use three iterations when the user supplies no other limit.
 Changing an evaluation input, environment, assertion, or bar starts a new
-campaign. The candidate revision is the measured variable, so record its exact
-identity in each iteration instead of rewriting the plan.
+campaign. The revised target is the measured variable, so record its exact
+identity in each iteration instead of rewriting the plan. Here `candidate` is
+the comparison configuration name, not a separate skill copy.
 
 The aggregator validates this minimum machine-readable subset and permits
 additional frozen fields for prompts, inputs, output contracts, bars, and the
@@ -138,10 +140,10 @@ be partial after a digest failure. The aggregator validates identity syntax and
 consistency but does not read either package to recreate the digest.
 
 Starting preflight is the freeze boundary. Finish every edit first, then keep
-the package unchanged through the report. Compute the baseline identity once;
-for each candidate iteration, reuse its one preflight identity for every run.
-The workflow relies on package immutability; it does not monitor the package for
-later changes.
+that package revision unchanged through its report. Compute the pre-edit
+baseline snapshot identity once; for each revised-target iteration, reuse its
+one preflight identity for every run. The workflow relies on revision
+immutability; it does not monitor the package for later changes.
 
 After freezing `evaluation-plan.json`, compute `plan_identity` as SHA-256 over
 its exact UTF-8 bytes. Whitespace and key order therefore affect the identity.
@@ -179,9 +181,9 @@ either result. Otherwise run them sequentially in fresh contexts; do not let the
 first output change the second run's prompt or contract.
 
 - For a new skill, compare `with_skill` with `without_skill`.
-- For authorized remediation, keep the preflight target as the untouched
-  baseline and copy it to a new isolated candidate before editing. Compare the
-  frozen candidate with that baseline.
+- For authorized remediation, copy the pre-edit target to an isolated,
+  read-only baseline snapshot, then edit the original target in place. Compare
+  the frozen revised target with that baseline snapshot.
 
 For `without_skill`, baseline `package_identity` identifies the frozen package
 intentionally withheld and may equal the candidate identity. The configuration
@@ -193,7 +195,7 @@ Use this layout without overwriting prior iterations:
 ```text
 <skill>-workspace/
 ├── evaluation-plan.json
-├── candidate-N/                  # frozen when its one preflight starts
+├── baseline/                     # read-only pre-edit snapshot
 └── iteration-N/
     ├── eval-<case>/
     │   ├── with_skill/
@@ -210,9 +212,9 @@ Use this layout without overwriting prior iterations:
     └── benchmark.json
 ```
 
-Keep fixtures immutable and do not share mutable output directories between
-parallel runs. Capture transcripts when the harness exposes them. Immediately
-record timing data as:
+Keep non-target evaluation fixtures immutable and do not share mutable output
+directories between parallel runs. Capture transcripts when the harness
+exposes them. Immediately record timing data as:
 
 ```json
 {"total_tokens": 84852, "duration_ms": 23332}
@@ -337,14 +339,12 @@ Report quality, time, and tokens separately.
 ## Iterate
 
 When the same review request authorizes remediation, use failed assertions,
-available feedback, and transcripts to copy the previous frozen candidate into
-a new candidate directory and revise the supported root cause there. Finish
-every edit; starting its one preflight freezes the candidate. Then rerun the
-entire suite in
-`iteration-N+1`, not only the failures. Otherwise, report the supported
-revision without editing. Succeed when the frozen criteria pass. At the
-iteration limit, stop and report every unmet criterion rather than weakening
-the bar.
+available feedback, and transcripts to revise the supported root cause directly
+in the original target. Finish every edit; starting its next preflight freezes
+that target revision. Then rerun the entire suite in `iteration-N+1`, not only
+the failures. Otherwise, report the supported revision without editing.
+Succeed when the frozen criteria pass. At the iteration limit, stop and report
+every unmet criterion rather than weakening the bar.
 
 ## Source
 

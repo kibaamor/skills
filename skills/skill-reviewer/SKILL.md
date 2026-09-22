@@ -1,6 +1,6 @@
 ---
 name: skill-reviewer
-description: Audit an existing Agent Skill as a package, diagnose false or missed triggers, or evaluate its behavior. When the same review request explicitly asks for remediation, produce and validate an isolated candidate copy. Exclude ordinary code review, skill creation or installation, general prompt tuning, isolated helper debugging, and prespecified skill edits without a review objective.
+description: Audit an existing Agent Skill as a package, diagnose false or missed triggers, or evaluate its behavior. When the same review request explicitly asks for remediation, edit and validate the original target skill in place. Exclude ordinary code review, skill creation or installation, general prompt tuning, isolated helper debugging, and prespecified skill edits without a review objective.
 ---
 
 # Skill Reviewer
@@ -9,9 +9,9 @@ description: Audit an existing Agent Skill as a package, diagnose false or misse
 
 - Treat `review`, `audit`, and `evaluate` on their own as read-only. Do not infer
   permission to edit from the findings.
-- Treat an explicit request to fix review findings as authorization to create
-  and edit an isolated candidate copy only when a review objective is part of
-  the same request.
+- Treat an explicit request to fix review findings as authorization to edit and
+  validate the original target skill in place only when a review objective is
+  part of the same request.
 - A request to draft, rewrite, or apply specified updates without a review
   objective is skill authoring, not this review workflow.
 - If several candidate skills exist and the target cannot be inferred, ask for
@@ -46,14 +46,16 @@ outside it, stop at the affected path and report or resolve the boundary issue.
 It never executes target scripts and reports when links, special files, or scan
 limits prevent complete inspection.
 
-The package passed to preflight becomes the immutable baseline. From the start
-of preflight until the final review report is complete, its path set,
-directory-entry types, link or reparse-point state and targets, and regular-file
-bytes must not change.
+The package passed to preflight becomes the review baseline. From the start of
+preflight until findings are formed, its path set, directory-entry types, link
+or reparse-point state and targets, and regular-file bytes must not change. In
+read-only mode, keep it unchanged until the final report is complete.
 This workflow relies on that contract rather than monitoring the target for
-later changes. If the source cannot satisfy it, first create an isolated,
-read-only baseline copy and preflight that copy. Keep the baseline untouched;
-authorized remediation always happens in a separate candidate copy.
+later changes. If the source cannot satisfy the inspection freeze, first create
+an isolated, read-only baseline copy and preflight that copy. Before authorized
+remediation starts, verify that the original target still matches the reviewed
+baseline; otherwise restart inspection. Once findings are formed, edit the
+original target in place.
 
 Before relying on the result, require `summary.truncated` to be `false`,
 `facts.package_inventory_complete`, `facts.package_digest_complete`, and
@@ -153,9 +155,10 @@ not by itself claim that runtime behavior was tested.
 Enter this mode only after forming findings and only when the same request
 explicitly authorizes fixing them.
 
-1. Before any edit, copy the immutable baseline to a new, isolated candidate
-   directory. Edit only that copy. Never overwrite the baseline, an existing
-   candidate, or an evaluation iteration.
+1. Before any edit, verify that the original target still matches the reviewed
+   baseline, then apply the supported fixes directly to that target. If it has
+   changed independently, restart inspection instead of overwriting the newer
+   state.
 2. Fix observed root causes rather than copying words from one failing prompt
    or adding rules for speculative edge cases.
 3. Keep one source of truth for each instruction. Put shared essentials in
@@ -175,10 +178,11 @@ explicitly authorizes fixing them.
    Query-file validation alone supports only `query_set_checked`.
 3. When behavior is in scope, follow the observation or paired-comparison
    branch in [references/behavior-evaluation.md](references/behavior-evaluation.md).
-4. For each candidate iteration, finish its edits. Starting the boundary
-   preflight freezes the candidate: establish its identity once, then keep it
-   unchanged through validation and evaluation. A further edit starts a new
-   isolated candidate iteration.
+4. For each remediation iteration, finish the edits to the original target.
+   Starting the boundary preflight freezes that revision: establish its
+   identity once, then keep it unchanged through validation and evaluation. A
+   further in-place edit starts a new remediation iteration; use only evidence
+   bound to the current revision.
    Rerun every affected check. Test each changed agent-facing CLI through its
    help switch, a safe success fixture, and an expected failure; verify
    structured stdout, diagnostic stderr, and exit behavior. Test imported
@@ -193,8 +197,8 @@ Lead with the verdict. Then report, in order:
 
 1. findings by priority, each with evidence, impact, and the smallest change or
    evidence-gathering test;
-2. focused candidate changes made, including the candidate path, identity, and
-   diff, or proposed changes in read-only mode;
+2. focused changes made directly in the original target, including its path,
+   before-and-after identities, and diff, or proposed changes in read-only mode;
 3. the three assurance dimensions, validation results, and behavioral
    comparisons, including quality, time, and token deltas plus human-review and
    blinding status when measured;
