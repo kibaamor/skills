@@ -32,16 +32,9 @@ Before manually opening any target path, locate this installed `skill-reviewer`
 directory independently of the target or current working directory, then
 resolve its bundled [review script](scripts/review_skill.py) to an absolute
 path. The script requires Python 3.10 or later; examples use `python3`, so
-substitute the host's Python 3 launcher when needed. The entry script stays a
-thin loader: the deterministic checks live in the sibling modules
-scripts/skill_review/__init__.py, scripts/skill_review/report.py,
-scripts/skill_review/frontmatter.py, scripts/skill_review/markdown_scan.py,
-scripts/skill_review/fs_safety.py, scripts/skill_review/static_review.py,
-scripts/skill_review/validate_evals.py,
-scripts/skill_review/validate_triggers.py,
-scripts/skill_review/aggregate.py, scripts/skill_review/output.py, and
-scripts/skill_review/cli.py, which it imports from its own directory. Run the
-trusted script as the package-boundary preflight:
+substitute the host's Python 3 launcher when needed. Run that trusted script as
+the package-boundary preflight; do not use reviewer code from the package under
+review:
 
 ```text
 python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py static /path/to/target-skill --pretty
@@ -49,8 +42,17 @@ python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py static /path/to
 
 If the preflight cannot establish a safe package root, or reports a redirect
 outside it, stop at the affected path and report or resolve the boundary issue.
-It never executes target scripts and reports when special files, changes, or
-scan limits prevent complete inspection.
+It never executes target scripts and reports when links, special files, or scan
+limits prevent complete inspection.
+
+The package passed to preflight becomes the immutable baseline. From the start
+of preflight until the final review report is complete, its path set,
+directory-entry types, link or reparse-point state and targets, and regular-file
+bytes must not change.
+This workflow relies on that contract rather than monitoring the target for
+later changes. If the source cannot satisfy it, first create an isolated,
+read-only baseline copy and preflight that copy. Keep the baseline untouched;
+authorized remediation always happens in a separate candidate copy.
 
 Before relying on the result, require `summary.truncated` to be `false`,
 `facts.package_inventory_complete`, `facts.package_digest_complete`, and
@@ -58,17 +60,16 @@ Before relying on the result, require `summary.truncated` to be `false`,
 contain a `sha256:` identity. When findings are truncated, rerun with
 `--max-findings` set to at least `summary.total`; otherwise report the exact
 completeness gap. The digest covers the paths and bytes of every ordinary file
-in the package; reviewed text is checked against its per-file content hash, and
-the identity is published only when bounded end-of-review verification passes.
-Treat the output as mechanical facts and review leads, not as judgment or YAML
-schema validation. Use a stable package snapshot.
+in the package and establishes its identity once. Treat the output as
+mechanical facts and review leads, not as judgment or YAML schema validation.
 
 After the boundary preflight:
 
-1. Record the resolved root, declared name, requested scope, and
-   `facts.package_identity`. Carry that exact identity into retained evaluation
-   provenance. If the digest is incomplete, identify the exact path and revision
-   used and report the identity limitation rather than inventing an identity.
+1. Record the resolved root, declared name, requested scope, and the single
+   `facts.package_identity` established by preflight. Carry that identity into
+   retained evaluation provenance. If the digest is incomplete, identify the
+   exact path used and report the identity limitation rather than inventing an
+   identity.
 2. Read the complete target `SKILL.md` and its agent-facing metadata.
 3. Account for every file in the full package inventory, including agent files
    and custom top-level directories. Follow every instruction-bearing pointer
@@ -144,9 +145,9 @@ not by itself claim that runtime behavior was tested.
 Enter this mode only after forming findings and only when the same request
 explicitly authorizes fixing them.
 
-1. If old/new behavior will be compared, snapshot the original skill into a
-   new, isolated evaluation workspace before editing. Never overwrite an
-   existing snapshot or iteration.
+1. Before any edit, copy the immutable baseline to a new, isolated candidate
+   directory. Edit only that copy. Never overwrite the baseline, an existing
+   candidate, or an evaluation iteration.
 2. Fix observed root causes rather than copying words from one failing prompt
    or adding rules for speculative edge cases.
 3. Keep one source of truth for each instruction. Put shared essentials in
@@ -166,10 +167,12 @@ explicitly authorizes fixing them.
    Query-file validation alone supports only `query_set_checked`.
 3. When behavior is in scope, follow the definition, paired-run, and aggregation
    checks in [references/behavior-evaluation.md](references/behavior-evaluation.md).
-4. After any edit, rerun the boundary preflight and every affected check. Test
-   each changed script through its help switch, a safe success fixture, and an
-   expected failure; verify structured stdout, diagnostic stderr, and exit
-   behavior.
+4. For each candidate iteration, finish its edits, run the boundary preflight
+   once to establish that candidate's identity, then freeze it for validation
+   and evaluation. A further edit starts a new isolated candidate iteration.
+   Rerun every affected check. Test each changed script through its help switch,
+   a safe success fixture, and an expected failure; verify structured stdout,
+   diagnostic stderr, and exit behavior.
 5. Recheck every edited pointer and file. Validation is complete when each
    applicable check either passes or is reported as an assurance gap with the
    reason it could not complete.
@@ -180,7 +183,7 @@ Lead with the verdict. Then report, in order:
 
 1. findings by priority, each with evidence, impact, and the smallest change or
    evidence-gathering test;
-2. focused changes made, or proposed changes in read-only mode;
+2. focused candidate changes made, or proposed changes in read-only mode;
 3. the three assurance dimensions, validation results, and behavioral
    comparisons, including quality, time, and token deltas plus human-review and
    blinding status when measured;

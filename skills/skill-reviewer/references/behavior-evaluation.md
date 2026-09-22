@@ -118,12 +118,16 @@ version.
 Obtain package identities from a successful static preflight where
 `package_inventory_complete` and `package_digest_complete` are true. Its
 `skill-package-manifest-v1` digest covers every ordinary package file with
-path-sensitive SHA-256 framing. Text used by the static review is checked
-against its manifest hash, and the tree is verified again after review;
-per-file and whole-package budgets are reported in `facts.limits`. The
-`package_digest_bytes` value is the logical content size of one manifest, not
-cumulative verification I/O. The aggregator validates identity syntax and
-consistency but does not read either package to recreate the digest.
+path-sensitive SHA-256 framing; per-file and whole-package budgets are reported
+in `facts.limits`. The `package_digest_bytes` value is the logical content size
+of one manifest. The aggregator validates identity syntax and consistency but
+does not read either package to recreate the digest.
+
+Freeze each package before its preflight and keep it unchanged through the
+report. Compute the baseline identity once. For each candidate iteration,
+finish the edits, run preflight once, and reuse that identity for every run in
+the iteration. The workflow relies on package immutability; it does not monitor
+the package for later changes.
 
 After freezing `evaluation-plan.json`, compute `plan_identity` as SHA-256 over
 its exact UTF-8 bytes. Whitespace and key order therefore affect the identity.
@@ -161,14 +165,16 @@ either result. Otherwise run them sequentially in fresh contexts; do not let the
 first output change the second run's prompt or contract.
 
 - For a new skill, compare `with_skill` with `without_skill`.
-- For authorized remediation, snapshot the untouched target first and compare
-  `with_skill` with `old_skill`.
+- For authorized remediation, keep the preflight target as the untouched
+  baseline and copy it to a new isolated candidate before editing. Compare the
+  frozen candidate with that baseline.
 
 Use this layout without overwriting prior iterations:
 
 ```text
 <skill>-workspace/
 ├── evaluation-plan.json
+├── candidate-N/                  # edited, preflighted once, then frozen
 └── iteration-N/
     ├── eval-<case>/
     │   ├── with_skill/
@@ -312,11 +318,13 @@ Report quality, time, and tokens separately.
 ## Iterate
 
 When the same review request authorizes remediation, use failed assertions,
-available feedback, and transcripts to revise the supported root cause, then
-rerun the entire suite in `iteration-N+1`, not only the failures. Otherwise,
-report the supported revision without editing. Succeed when the frozen criteria
-pass. At the iteration limit, stop and report every unmet criterion rather than
-weakening the bar.
+available feedback, and transcripts to copy the previous frozen candidate into
+a new candidate directory and revise the supported root cause there. Preflight
+the new candidate once, freeze it, then rerun the entire suite in
+`iteration-N+1`, not only the failures. Otherwise, report the supported
+revision without editing. Succeed when the frozen criteria pass. At the
+iteration limit, stop and report every unmet criterion rather than weakening
+the bar.
 
 ## Source
 

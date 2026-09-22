@@ -82,8 +82,9 @@ observable without changing the test semantics.
    adjacent-task boundary for false positives.
 3. Revise concepts, not literal query wording. Run every candidate on the
    training split with the frozen protocol, diagnose its failures, and save it.
-   Stop when the training bar passes or at the fixed iteration limit; about five
-   candidates is a useful default.
+   Create each revision in a new isolated candidate copy and freeze it before
+   routing runs. Stop when the training bar passes or at the fixed iteration
+   limit; about five candidates is a useful default.
 4. After candidates are frozen, have the independent evaluator run one
    validation campaign for each candidate using the frozen per-query run count
    and threshold. Select a candidate that meets both frozen error-rate bars

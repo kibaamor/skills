@@ -11,7 +11,7 @@ import os
 import re
 import stat
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 WINDOWS_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
@@ -119,7 +119,6 @@ class TextReadBudget:
 @dataclass
 class DigestBudget:
     bytes_hashed: int = 0
-    content_digests: dict[str, bytes] = field(default_factory=dict)
 
 
 class TextReadError(ValueError):
@@ -168,7 +167,7 @@ def iter_files(
     issues: list[InventoryIssue] | None = None,
     state: InventoryState | None = None,
 ) -> list[Path]:
-    """Inventory ordinary resources without following links or special files."""
+    """Inventory an immutable package without following links or special files."""
     if state is None:
         state = InventoryState()
     if not state.complete and state.entry_limit_reported:
@@ -211,34 +210,6 @@ def iter_files(
     while pending and not state.entry_limit_reported:
         current, depth = pending.pop()
         try:
-            current_info = os.lstat(current)
-        except OSError as exc:
-            if issues is not None:
-                issues.append(
-                    InventoryIssue(
-                        current,
-                        "package.resource_changed",
-                        f"A queued resource directory changed before inspection: {exc}",
-                    )
-                )
-            state.complete = False
-            continue
-        if (
-            stat.S_ISLNK(current_info.st_mode)
-            or is_reparse_stat(current_info)
-            or not stat.S_ISDIR(current_info.st_mode)
-        ):
-            if issues is not None:
-                issues.append(
-                    InventoryIssue(
-                        current,
-                        "package.resource_changed",
-                        "A queued resource directory changed before inspection.",
-                    )
-                )
-            state.complete = False
-            continue
-        try:
             entries = os.scandir(current)
         except OSError as exc:
             if issues is not None:
@@ -251,41 +222,6 @@ def iter_files(
                 )
             state.complete = False
             continue
-        try:
-            opened_info = os.lstat(current)
-        except OSError as exc:
-            entries.close()
-            if issues is not None:
-                issues.append(
-                    InventoryIssue(
-                        current,
-                        "package.resource_changed",
-                        f"A resource directory changed while it was being opened: {exc}",
-                    )
-                )
-            state.complete = False
-            continue
-        if (
-            stat.S_ISLNK(opened_info.st_mode)
-            or is_reparse_stat(opened_info)
-            or not stat.S_ISDIR(opened_info.st_mode)
-            or not os.path.samestat(current_info, opened_info)
-            or stable_file_signature(current_info) != stable_file_signature(opened_info)
-        ):
-            entries.close()
-            if issues is not None:
-                issues.append(
-                    InventoryIssue(
-                        current,
-                        "package.resource_changed",
-                        "A resource directory changed while it was being opened.",
-                    )
-                )
-            state.complete = False
-            continue
-        discovered_start = len(discovered)
-        pending_start = len(pending)
-        issues_start = len(issues) if issues is not None else 0
         try:
             with entries:
                 for entry in entries:
@@ -305,7 +241,7 @@ def iter_files(
                         break
                     state.entries_scanned += 1
                     try:
-                        entry_info = entry.stat(follow_symlinks=False)
+                        entry_info = os.lstat(path)
                     except OSError as exc:
                         state.complete = False
                         if issues is not None:
@@ -368,37 +304,6 @@ def iter_files(
                         str(exc),
                     )
                 )
-        else:
-            try:
-                current_after = os.lstat(current)
-            except OSError as exc:
-                current_after = None
-                changed_message = (
-                    f"A resource directory changed during inspection: {exc}"
-                )
-            else:
-                changed_message = "A resource directory changed during inspection."
-            if (
-                current_after is None
-                or stat.S_ISLNK(current_after.st_mode)
-                or is_reparse_stat(current_after)
-                or not stat.S_ISDIR(current_after.st_mode)
-                or not os.path.samestat(opened_info, current_after)
-                or stable_file_signature(opened_info)
-                != stable_file_signature(current_after)
-            ):
-                del discovered[discovered_start:]
-                del pending[pending_start:]
-                if issues is not None:
-                    del issues[issues_start:]
-                    issues.append(
-                        InventoryIssue(
-                            current,
-                            "package.resource_changed",
-                            changed_message,
-                        )
-                    )
-                state.complete = False
     return sorted(discovered)
 
 
@@ -446,7 +351,7 @@ def read_bounded_regular_utf8(
         )
 
     remaining = MAX_TOTAL_TEXT_BYTES - budget.bytes_read
-    if remaining <= 0 or before.st_size > remaining:
+    if remaining < 0 or before.st_size > remaining:
         raise TextReadError(
             "package.resource_text_budget",
             f"The package exceeds the {MAX_TOTAL_TEXT_BYTES}-byte text-read budget.",
@@ -563,7 +468,7 @@ def _digest_bounded_regular_file(
     root: Path,
     path: Path,
     budget: DigestBudget,
-) -> tuple[int, bytes, os.stat_result]:
+) -> tuple[int, bytes]:
     lexical_root = Path(os.path.abspath(os.fspath(root)))
     path = Path(os.path.abspath(os.fspath(path)))
     try:
@@ -644,33 +549,6 @@ def _digest_bounded_regular_file(
                 "package.resource_special_file",
                 f"A {file_type_name(opened.st_mode)} resource was not hashed.",
             )
-        if not os.path.samestat(before, opened) or stable_file_signature(
-            before
-        ) != stable_file_signature(opened):
-            raise DigestError(
-                path,
-                "package.resource_changed",
-                "The resource changed while it was being opened.",
-            )
-        redirect = first_link_like_component(lexical_root, path)
-        try:
-            current = os.lstat(path)
-        except OSError as exc:
-            raise DigestError(
-                path,
-                "package.resource_changed",
-                f"The resource changed while it was being opened: {exc}",
-            ) from exc
-        if (
-            redirect is not None
-            or not os.path.samestat(current, opened)
-            or stable_file_signature(current) != stable_file_signature(opened)
-        ):
-            raise DigestError(
-                path,
-                "package.resource_changed",
-                "The resource path changed while it was being opened.",
-            )
 
         while bytes_read <= maximum:
             request_size = min(READ_CHUNK_BYTES, maximum + 1 - bytes_read)
@@ -683,30 +561,6 @@ def _digest_bounded_regular_file(
             digest.update(hashable)
             budget.bytes_hashed += len(hashable)
             bytes_read += len(chunk)
-
-        opened_after = os.fstat(descriptor)
-        redirect = first_link_like_component(lexical_root, path)
-        try:
-            current_after = os.lstat(path)
-        except OSError as exc:
-            raise DigestError(
-                path,
-                "package.resource_changed",
-                f"The resource changed while it was being hashed: {exc}",
-            ) from exc
-        if (
-            redirect is not None
-            or not os.path.samestat(opened, opened_after)
-            or not os.path.samestat(current_after, opened_after)
-            or stable_file_signature(opened_after) != stable_file_signature(opened)
-            or stable_file_signature(current_after)
-            != stable_file_signature(opened_after)
-        ):
-            raise DigestError(
-                path,
-                "package.resource_changed",
-                "The resource changed while it was being hashed.",
-            )
     except OSError as exc:
         raise DigestError(
             path,
@@ -728,7 +582,7 @@ def _digest_bounded_regular_file(
             "package.digest_total_limit",
             f"The package exceeds the {MAX_TOTAL_DIGEST_BYTES}-byte digest budget.",
         )
-    return bytes_read, digest.digest(), opened_after
+    return bytes_read, digest.digest()
 
 
 def digest_package_files(
@@ -761,40 +615,13 @@ def digest_package_files(
 
     manifest = hashlib.sha256(PACKAGE_MANIFEST_HEADER)
     manifest.update(struct.pack(">Q", len(records)))
-    snapshots: list[tuple[Path, os.stat_result]] = []
     for _, relative, path in records:
-        size, content_digest, snapshot = _digest_bounded_regular_file(
-            lexical_root, path, budget
-        )
+        size, content_digest = _digest_bounded_regular_file(lexical_root, path, budget)
         manifest.update(b"F")
         manifest.update(struct.pack(">Q", len(relative)))
         manifest.update(relative)
         manifest.update(struct.pack(">Q", size))
         manifest.update(content_digest)
-        budget.content_digests[relative.decode("utf-8")] = content_digest
-        snapshots.append((path, snapshot))
-
-    for path, snapshot in snapshots:
-        redirect = first_link_like_component(lexical_root, path)
-        try:
-            current = os.lstat(path)
-        except OSError as exc:
-            raise DigestError(
-                path,
-                "package.resource_changed",
-                f"The resource changed before hashing completed: {exc}",
-            ) from exc
-        if (
-            redirect is not None
-            or not stat.S_ISREG(current.st_mode)
-            or not os.path.samestat(snapshot, current)
-            or stable_file_signature(snapshot) != stable_file_signature(current)
-        ):
-            raise DigestError(
-                path,
-                "package.resource_changed",
-                "The resource changed before package hashing completed.",
-            )
     return f"sha256:{manifest.hexdigest()}"
 
 

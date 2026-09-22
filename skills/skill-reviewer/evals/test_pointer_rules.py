@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from _support import FS_SAFETY, REVIEW, STATIC_REVIEW_MODULE, skill_text, write
+from _support import FS_SAFETY, REVIEW, skill_text, symlink_or_skip, write
 
 
 class StaticReviewTests(unittest.TestCase):
@@ -211,46 +210,14 @@ class StaticReviewTests(unittest.TestCase):
                     body="Read [the companion](COMPANION.md).",
                 ),
             )
-            write(companion, "# Simulated link\n")
             write(guide, "[unread content](references/missing.md)\n")
-            original_detector = REVIEW.first_link_like_component
-            original_resolver = REVIEW.resolve_within
-
-            def detect_companion_link(package_root: Path, path: Path) -> Path | None:
-                if Path(os.path.abspath(path)) == companion:
-                    return companion
-                return original_detector(package_root, path)
-
-            def resolve_companion_link(
-                package_root: Path, path: Path, *, strict: bool
-            ) -> Path:
-                if Path(os.path.abspath(path)) == companion:
-                    return guide
-                return original_resolver(package_root, path, strict=strict)
-
-            with (
-                mock.patch.object(
-                    STATIC_REVIEW_MODULE,
-                    "first_link_like_component",
-                    side_effect=detect_companion_link,
-                ),
-                mock.patch.object(
-                    STATIC_REVIEW_MODULE,
-                    "resolve_within",
-                    side_effect=resolve_companion_link,
-                ),
-                mock.patch.object(
-                    FS_SAFETY,
-                    "first_link_like_component",
-                    side_effect=detect_companion_link,
-                ),
-            ):
-                result, status = REVIEW.static_review(root, 100)
+            symlink_or_skip(self, companion, guide)
+            result, status = REVIEW.static_review(root, 100)
 
         codes = {finding["code"] for finding in result["findings"]}
         self.assertEqual(status, 1)
         self.assertFalse(result["facts"]["text_inspection_complete"])
-        self.assertIn("package.resource_changed", codes)
+        self.assertIn("package.resource_symlink", codes)
         self.assertNotIn("pointer.target_missing", codes)
 
     def test_rejects_windows_anchored_markdown_pointers_on_every_host(self) -> None:
@@ -497,7 +464,9 @@ class StaticReviewTests(unittest.TestCase):
                     body="Run scripts/prompt.cmd only with explicit input.",
                 ),
             )
-            write(root / "scripts" / "prompt.cmd", "@echo off\nset /p answer=Continue?\n")
+            write(
+                root / "scripts" / "prompt.cmd", "@echo off\nset /p answer=Continue?\n"
+            )
             result, status = REVIEW.static_review(root, 100)
 
         self.assertEqual(status, 0)
@@ -525,8 +494,8 @@ class StaticReviewTests(unittest.TestCase):
                         'Write-Output "scripts/powershell_output.ps1"\n'
                         '"scripts/bare quoted.ps1"\n'
                         '"$PSScriptRoot\\scripts\\bare rooted.ps1"\n'
-                        '& \'$PSScriptRoot\\scripts\\literal_variable.ps1\'\n'
-                        "# & \"$PSScriptRoot\\scripts\\commented.ps1\"\n"
+                        "& '$PSScriptRoot\\scripts\\literal_variable.ps1'\n"
+                        '# & "$PSScriptRoot\\scripts\\commented.ps1"\n'
                         "```\n\n"
                         "```cmd\n"
                         "REM call scripts\\remarked.cmd /?\n"
