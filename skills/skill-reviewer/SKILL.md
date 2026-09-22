@@ -51,11 +51,16 @@ preflight until findings are formed, its path set, directory-entry types, link
 or reparse-point state and targets, and regular-file bytes must not change. In
 read-only mode, keep it unchanged until the final report is complete.
 This workflow relies on that contract rather than monitoring the target for
-later changes. If the source cannot satisfy the inspection freeze, first create
-an isolated, read-only baseline copy and preflight that copy. Before authorized
-remediation starts, verify that the original target still matches the reviewed
-baseline; otherwise restart inspection. Once findings are formed, edit the
-original target in place.
+later changes. Treat the freeze as a design assumption of the bundled tooling,
+not a guarantee the tool enforces: concurrent mutation of the target during
+inspection is outside its threat model, and the script's per-read stability
+checks only surface accidental contract violations as hard errors. A gap in
+that defense-in-depth between read paths is a hardening observation, not a
+security defect. If the source cannot satisfy the inspection freeze, first
+create an isolated, read-only baseline copy and preflight that copy. Before
+authorized remediation starts, verify that the original target still matches
+the reviewed baseline; otherwise restart inspection. Once findings are
+formed, edit the original target in place.
 
 Before relying on the result, require `summary.truncated` to be `false`,
 `facts.package_inventory_complete`, `facts.package_digest_complete`, and
