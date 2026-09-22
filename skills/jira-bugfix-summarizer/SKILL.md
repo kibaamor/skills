@@ -23,7 +23,7 @@ If the user asks to add, post, or comment the summary in Jira, draft Jira-ready 
 
 When the user provides only a Jira key or URL, inspect the issue read-only before drafting. Treat Jira status as context, not proof of a fix. Gather only the fields and linked evidence needed to prove fixed state and summarize the change: current status, resolution, summary, description, comments, fix versions, linked issues, remote links, and changelog only when it clarifies fixed state or validation.
 
-Proceed only when the resolution or supporting evidence shows a completed fix. Treat a current non-terminal status such as open, reopened, or in progress as conflicting evidence unless newer resolution notes, commits, release/build records, or the user's statement clearly show the fix is complete. If the issue was closed as duplicate, canceled, won't fix, cannot reproduce, superseded, obsolete, or another non-fix outcome, state that this skill summarizes fixed bugs and stop or ask one clarification question if the evidence conflicts.
+Proceed only when the resolution or supporting evidence shows a completed fix. Treat a current non-terminal status such as open, reopened, or in progress as conflicting evidence unless newer resolution notes, commits, release/build records, or the user's statement clearly show the fix is complete. If the issue was closed as duplicate, canceled, won't fix, cannot reproduce, superseded, obsolete, or another non-fix outcome, state that this skill only summarizes already-fixed bugs and stop. If the evidence conflicts about whether a fix exists, ask one bundled clarification question instead.
 
 ## Workflow
 
@@ -31,7 +31,7 @@ Proceed only when the resolution or supporting evidence shows a completed fix. T
 2. Gather only supported facts. Extract the symptom, affected users or workflow, business impact, plain-language root cause, fixed behavior, user-required action, validation evidence, and inputs needed for `Fix Records`.
 3. Classify gaps. If a fact is unavailable, label it as `Not confirmed in the supplied material` or `Not applicable`; do not infer it from adjacent details.
 4. Load `references/fix-records.md` before drafting the default `Fix Records` section.
-5. Draft using the Output structure, putting user-visible impact, fixed behavior, required action, and validation before traceability detail.
+5. Draft using the Output structure, putting user-visible impact, fixed behavior, and required action before traceability detail.
 6. If the user asked for Jira placement, apply Jira-ready formatting from Output before responding.
 7. Self-check. Confirm every claim is supported by the supplied material, non-`Fix Records` sections omit Jira metadata and internal deployment details, `Fix Records` satisfies `references/fix-records.md`, validation is labelled as confirmed or suggested, and Jira-ready output satisfies the Jira-ready formatting rule.
 
@@ -78,7 +78,7 @@ Jira-ready formatting: for Jira placement requests, preserve the drafted Markdow
 
 ## Rules
 
-- Ask at most one bundled clarification question before drafting. Bundle all missing facts together.
+- Ask at most one bundled clarification question before drafting. Bundle all missing facts together, including missing fix records and their viewable addresses.
 - If the user approves omissions or asks for a best-effort draft, mark missing facts explicitly and continue.
 - Write for non-technical readers. Omit implementation internals, stack traces, file paths, function names, config keys, and low-level code details unless the user requested them or they are needed to understand impact, required action, validation, or traceability.
 - Separate confirmed facts from suggested follow-up. Do not hide uncertainty in passive language.
