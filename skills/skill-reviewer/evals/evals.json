@@ -87,6 +87,7 @@
       ],
       "assertions": [
         "SHA-256 hashes of every source fixture are identical before and after the run",
+        "Any new or modified eval definitions and fixtures exist only in the run output workspace",
         "The tool trace contains no acme-consumer invocation",
         "The tool trace shows both clean-context configurations start before either result is inspected",
         "Both configurations receive the same prompt, inputs, and output contract and retain grading, timing, and provenance tied to the frozen plan",

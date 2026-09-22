@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -10,7 +11,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from _support import REVIEW, SCRIPT, junction_or_fail, symlink_or_skip
+from _support import (
+    REVIEW,
+    SCRIPT,
+    junction_or_fail,
+    skill_text,
+    symlink_or_skip,
+    write,
+)
 
 
 class InterfaceTests(unittest.TestCase):
@@ -74,6 +82,78 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("Also write the rendered result", completed.stdout)
         self.assertNotIn("complete rendered result", completed.stdout)
+
+    def test_validate_evals_accepts_an_explicit_skill_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            target = temporary_root / "target-skill"
+            workspace = temporary_root / "review-workspace"
+            write(target / "SKILL.md", skill_text("target-skill"))
+            evals_path = workspace / "evals" / "evals.json"
+            write(
+                evals_path,
+                json.dumps(
+                    {
+                        "skill_name": "target-skill",
+                        "evals": [
+                            {
+                                "id": "one",
+                                "prompt": "Run one case.",
+                                "expected_output": "One result.",
+                            },
+                            {
+                                "id": "two",
+                                "prompt": "Run another case.",
+                                "expected_output": "Another result.",
+                            },
+                        ],
+                    }
+                ),
+            )
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-B",
+                    str(SCRIPT),
+                    "validate-evals",
+                    str(evals_path),
+                    "--skill-root",
+                    str(target),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(
+            json.loads(completed.stdout)["facts"]["target_skill_name"],
+            "target-skill",
+        )
+
+    def test_validate_evals_rejects_a_missing_explicit_skill_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "review-workspace"
+            evals_path = workspace / "evals" / "evals.json"
+            write(evals_path, "{}")
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-B",
+                    str(SCRIPT),
+                    "validate-evals",
+                    str(evals_path),
+                    "--skill-root",
+                    str(Path(temporary) / "missing-skill"),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("Target skill root must exist", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
 
     def test_symlink_loop_is_a_bounded_invalid_path_error(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

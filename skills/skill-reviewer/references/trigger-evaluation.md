@@ -20,6 +20,17 @@ branches and meaningful boundaries.
 
 ## Build realistic query sets
 
+Before creating or reading query text, choose the evidence status. For blinded
+evidence, an independent evaluator owns the validation queries and exposes only
+the training split to the revising agent; separate files without a separate
+context are not a boundary. Once the revising agent has seen validation text,
+mark the campaign `unblinded`. Only fresh confirmation queries can restore
+out-of-sample evidence.
+
+Use an existing target `evals/trigger_queries.json` as read-only input. Store a
+new or modified query set under the isolated evaluation workspace so the
+preflighted target remains unchanged.
+
 Start with about 20 labeled queries: 8-10 expected to trigger and 8-10 expected
 not to trigger. Adjust the count when cost or domain breadth warrants it.
 
@@ -43,7 +54,7 @@ Use only training failures to revise the description.
 Validate the query file before running routing experiments:
 
 ```text
-python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py validate-triggers /path/to/target-skill/evals/trigger_queries.json --pretty
+python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py validate-triggers /path/to/target-skill-workspace/evals/trigger_queries.json --pretty
 ```
 
 This validates labels, uniqueness, and split composition. It does not execute
@@ -69,14 +80,16 @@ as experimental choices, not specification constants.
 Stop a run early only when the client makes invocation or non-invocation
 observable without changing the test semantics.
 
-## Optimize without overfitting
+## Optimize only when remediation is authorized
+
+In read-only mode, stop after measuring invocation and report the supported
+revision. Enter the steps below only when the same review request authorizes
+remediation.
 
 1. Before revising, freeze the query set, runs per query, trigger threshold,
    acceptable false-positive and false-negative rates, client, model, detection
-   method, harness and installation setup, and iteration limit. Keep validation
-   queries outside the revising agent's context through an independent harness
-   or evaluator. If no real context boundary is available, label the set
-   `unblinded` rather than claiming holdout evidence.
+   method, harness and installation setup, evidence status, and iteration
+   limit.
 2. Evaluate the current description on the training split. Diagnose those
    failures, generalize the missing intent for false negatives, and sharpen the
    adjacent-task boundary for false positives.

@@ -325,6 +325,85 @@ class StaticReviewTests(unittest.TestCase):
             }.isdisjoint(unreferenced)
         )
 
+    def test_python_imports_make_helpers_reachable_without_making_them_clis(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "python-import-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "python-import-skill",
+                    body="Run scripts/main.py with explicit arguments.",
+                ),
+            )
+            write(root / "scripts" / "main.py", "import helpers.worker\n# --help\n")
+            write(
+                root / "scripts" / "helpers" / "__init__.py",
+                "from . import worker\n",
+            )
+            helper = root / "scripts" / "helpers" / "worker.py"
+            write(helper, 'def run():\n    return input("Value: ")\n')
+            write(root / "scripts" / "orphan.py", "pass\n")
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            {
+                Path(finding["path"]).name
+                for finding in result["findings"]
+                if finding["code"] == "script.unreferenced"
+            },
+            {"orphan.py"},
+        )
+        self.assertNotIn(
+            "script.help_not_detected",
+            {finding["code"] for finding in result["findings"]},
+        )
+        self.assertIn(
+            helper,
+            {
+                Path(finding["path"])
+                for finding in result["findings"]
+                if finding["code"] == "script.interactive_pattern"
+            },
+        )
+
+    def test_adversarial_python_sources_stay_bounded_during_reachability(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "adversarial-python-skill"
+            write(
+                root / "SKILL.md",
+                skill_text(
+                    "adversarial-python-skill",
+                    body=(
+                        "Run scripts/deep.py and scripts/nullbyte.py with "
+                        "explicit arguments."
+                    ),
+                ),
+            )
+            write(
+                root / "scripts" / "deep.py",
+                "# --help\nx = " + "-" * 100000 + "1\n",
+            )
+            write(
+                root / "scripts" / "nullbyte.py",
+                "import helpers\x00worker\n# --help\n",
+            )
+            result, status = REVIEW.static_review(root, 100)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(result["summary"]["errors"], 0)
+        self.assertTrue(result["facts"]["text_inspection_complete"])
+        self.assertEqual(
+            {
+                Path(finding["path"]).name
+                for finding in result["findings"]
+                if finding["code"] == "script.unreferenced"
+            },
+            set(),
+        )
+
     def test_bare_script_paths_handle_punctuation_without_matching_urls(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "bare-path-skill"

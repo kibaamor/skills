@@ -8,7 +8,7 @@ This repository contains reusable [Agent Skills](https://agentskills.io) that ca
 | --- | --- | --- |
 | `jira-bugfix-summarizer` | Summarizing an already fixed Jira bug for stakeholders, including impact, root cause, fix records, and validation. | Diagnosing unresolved bugs, implementing fixes, or updating Jira. |
 | `project-knowledge-generator` | Creating, regenerating, refreshing, or syncing repository-wide knowledge docs for coding agents, including `AGENTS.md`, `CONTEXT.md`, `CONTEXT-MAP.md`, `ARCHITECTURE.md`, `CODE-MAP.md`, and ADRs. | Explain-only repo walkthroughs or localized edits to one existing document. |
-| `skill-reviewer` | Reviewing or auditing an existing Agent Skill and, when explicitly requested in the same review, remediating evidence-backed findings. | Ordinary code review, new-skill creation, installation, non-skill prompt tuning, or editing a skill to a supplied specification without a review objective. |
+| `skill-reviewer` | Reviewing or auditing an existing Agent Skill and, when explicitly requested in the same review, producing a validated candidate copy with evidence-backed fixes. | Ordinary code review, new-skill creation, installation, non-skill prompt tuning, or editing a skill to a supplied specification without a review objective. |
 
 ## Installation
 

@@ -124,6 +124,14 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=EXIT_CODES,
     )
     evals_parser.add_argument("evals_json", help="Path to evals/evals.json.")
+    evals_parser.add_argument(
+        "--skill-root",
+        metavar="TARGET",
+        help=(
+            "Validate skill_name against TARGET/SKILL.md while keeping the "
+            "eval definition and fixtures in their own workspace."
+        ),
+    )
     add_output_options(evals_parser)
 
     triggers_parser = subparsers.add_parser(
@@ -171,7 +179,12 @@ def main() -> int:
         if args.command == "static":
             result, status = static_review(Path(args.target), args.max_findings)
         elif args.command == "validate-evals":
-            result, status = validate_evals(Path(args.evals_json), args.max_findings)
+            target_skill_root = (
+                Path(args.skill_root) if args.skill_root is not None else None
+            )
+            result, status = validate_evals(
+                Path(args.evals_json), args.max_findings, target_skill_root
+            )
         elif args.command == "validate-triggers":
             result, status = validate_triggers(
                 Path(args.trigger_queries_json), args.max_findings

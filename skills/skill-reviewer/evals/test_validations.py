@@ -53,9 +53,7 @@ class EvalsValidationTests(unittest.TestCase):
                 }
             )
             write(evals_path, contents)
-            with mock.patch.object(
-                FS_SAFETY, "MAX_TEXT_FILE_BYTES", len(contents) - 1
-            ):
+            with mock.patch.object(FS_SAFETY, "MAX_TEXT_FILE_BYTES", len(contents) - 1):
                 result, status = REVIEW.validate_evals(evals_path, 100)
 
         self.assertEqual(status, 1)
@@ -193,6 +191,137 @@ class EvalsValidationTests(unittest.TestCase):
 
         self.assertEqual(status, 0)
         self.assertEqual(result["facts"]["target_skill_name"], "right-skill")
+
+    def test_accepts_external_evals_and_workspace_fixture(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            target = temporary_root / "target-skill"
+            workspace = temporary_root / "review-workspace"
+            write(target / "SKILL.md", skill_text("target-skill"))
+            write(workspace / "evals" / "files" / "input.txt", "fixture\n")
+            evals_path = workspace / "evals" / "evals.json"
+            write(
+                evals_path,
+                json.dumps(
+                    {
+                        "skill_name": "target-skill",
+                        "evals": [
+                            {
+                                "id": "fixture",
+                                "prompt": "Use the workspace fixture.",
+                                "expected_output": "A verified result.",
+                                "files": ["evals/files/input.txt"],
+                            },
+                            {
+                                "id": "boundary",
+                                "prompt": "Exercise a realistic boundary.",
+                                "expected_output": "A safe boundary response.",
+                            },
+                        ],
+                    }
+                ),
+            )
+            result, status = REVIEW.validate_evals(evals_path, 100, target)
+
+        self.assertEqual(status, 0)
+        self.assertEqual(result["facts"]["target_skill_name"], "target-skill")
+
+    def test_external_evals_validate_name_against_explicit_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            target = temporary_root / "target-skill"
+            workspace = temporary_root / "review-workspace"
+            write(target / "SKILL.md", skill_text("target-skill"))
+            evals_path = workspace / "evals" / "evals.json"
+            write(
+                evals_path,
+                json.dumps(
+                    {
+                        "skill_name": "wrong-skill",
+                        "evals": [
+                            {
+                                "id": "one",
+                                "prompt": "Run one case.",
+                                "expected_output": "One result.",
+                            },
+                            {
+                                "id": "two",
+                                "prompt": "Run another case.",
+                                "expected_output": "Another result.",
+                            },
+                        ],
+                    }
+                ),
+            )
+            result, status = REVIEW.validate_evals(evals_path, 100, target)
+
+        self.assertEqual(status, 1)
+        self.assertIn(
+            "evals.skill_name_mismatch",
+            {finding["code"] for finding in result["findings"]},
+        )
+
+    def test_rejects_missing_explicit_target_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            workspace = temporary_root / "review-workspace"
+            evals_path = workspace / "evals" / "evals.json"
+            write(
+                evals_path,
+                json.dumps(
+                    {
+                        "skill_name": "missing-skill",
+                        "evals": [
+                            {
+                                "id": "one",
+                                "prompt": "Run one case.",
+                                "expected_output": "One result.",
+                            },
+                            {
+                                "id": "two",
+                                "prompt": "Run another case.",
+                                "expected_output": "Another result.",
+                            },
+                        ],
+                    }
+                ),
+            )
+
+            with self.assertRaisesRegex(ValueError, "Target skill root must exist"):
+                REVIEW.validate_evals(
+                    evals_path, 100, temporary_root / "missing-target"
+                )
+
+    def test_rejects_non_directory_explicit_target_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            target = temporary_root / "target-skill"
+            workspace = temporary_root / "review-workspace"
+            write(target, "not a directory\n")
+            evals_path = workspace / "evals" / "evals.json"
+            write(
+                evals_path,
+                json.dumps(
+                    {
+                        "skill_name": "target-skill",
+                        "evals": [
+                            {
+                                "id": "one",
+                                "prompt": "Run one case.",
+                                "expected_output": "One result.",
+                            },
+                            {
+                                "id": "two",
+                                "prompt": "Run another case.",
+                                "expected_output": "Another result.",
+                            },
+                        ],
+                    }
+                ),
+            )
+
+            with self.assertRaisesRegex(ValueError, "ordinary directory"):
+                REVIEW.validate_evals(evals_path, 100, target)
 
     def test_canonicalizes_skill_name_before_comparison(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -449,9 +578,7 @@ class EvalsValidationTests(unittest.TestCase):
             )
             linked_evals = root / "evals" / "evals.json"
             linked_evals.parent.mkdir()
-            symlink_or_skip(
-                self, linked_evals, outside / "evals" / "evals.json"
-            )
+            symlink_or_skip(self, linked_evals, outside / "evals" / "evals.json")
             result, status = REVIEW.validate_evals(linked_evals, 100)
 
         self.assertEqual(status, 1)
@@ -653,9 +780,7 @@ class TriggerValidationTests(unittest.TestCase):
             data[0]["query"] = "Train yes " + ("x" * 200)
             contents = json.dumps(data)
             write(queries_path, contents)
-            with mock.patch.object(
-                FS_SAFETY, "MAX_TEXT_FILE_BYTES", len(contents) - 1
-            ):
+            with mock.patch.object(FS_SAFETY, "MAX_TEXT_FILE_BYTES", len(contents) - 1):
                 result, status = REVIEW.validate_triggers(queries_path, 100)
 
         self.assertEqual(status, 1)
@@ -838,9 +963,7 @@ class TriggerValidationTests(unittest.TestCase):
             finally:
                 if os.path.lexists(link):
                     os.rmdir(link)
-            self.assertTrue(
-                (outside / "evals" / "trigger_queries.json").is_file()
-            )
+            self.assertTrue((outside / "evals" / "trigger_queries.json").is_file())
 
         self.assertEqual(status, 1)
         self.assertIn(

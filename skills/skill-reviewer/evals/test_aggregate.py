@@ -249,6 +249,33 @@ class AggregateTests(unittest.TestCase):
             ],
         )
 
+    def test_without_skill_baseline_uses_the_withheld_package_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "iteration"
+            result_data = grading([("Has result", True, "Found output.json")])
+            self.write_run(root, "eval-one", "with_skill", result_data, 1200, 3000)
+            self.write_run(root, "eval-one", "without_skill", result_data, 900, 2000)
+
+            plan_path = root.parent / "evaluation-plan.json"
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan["baseline"] = {
+                "name": "without_skill",
+                "package_identity": self.candidate_identity,
+            }
+            provenance_path = root / "eval-one" / "without_skill" / "provenance.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["package_identity"] = self.candidate_identity
+            write(provenance_path, json.dumps(provenance))
+            self.write_plan_data(root, plan)
+
+            result, status = REVIEW.aggregate(root, "with_skill", "without_skill", 100)
+
+        self.assertEqual(status, 0)
+        self.assertTrue(result["facts"]["evidence_complete"])
+        self.assertEqual(
+            result["facts"]["identities"]["baseline"], self.candidate_identity
+        )
+
     def test_acceptance_failure_preserves_complete_evidence_and_delta(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "iteration"

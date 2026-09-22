@@ -7,6 +7,8 @@ command-line usage.
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
@@ -15,6 +17,7 @@ from .fs_safety import (
     TextReadBudget,
     TextReadError,
     is_link_like,
+    is_reparse_stat,
     read_bounded_regular_utf8,
     resolve_package_data_file,
     resolve_within,
@@ -26,8 +29,19 @@ EVAL_ROOT_FIELDS = {"skill_name", "evals"}
 EVAL_CASE_FIELDS = {"id", "prompt", "expected_output", "files", "assertions"}
 
 
-def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any], int]:
-    path, skill_root, path_issue = resolve_package_data_file(evals_path)
+def validate_evals(
+    evals_path: Path,
+    max_findings: int,
+    target_skill_root: Path | None = None,
+) -> tuple[dict[str, Any], int]:
+    path, definition_root, path_issue = resolve_package_data_file(evals_path)
+    external_definition = target_skill_root is not None
+    definition_scope = (
+        "eval definition workspace" if external_definition else "target skill package"
+    )
+    fixture_scope = (
+        "eval definition root" if external_definition else "target skill root"
+    )
     findings: list[Finding] = []
     facts: dict[str, Any] = {
         "skill_name": None,
@@ -42,7 +56,7 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
             "evals.definition_symlink",
             path,
             "The eval definition or one of its package directories is a symbolic link or reparse point and was not inspected.",
-            "Use an ordinary evals.json file inside the target skill package.",
+            f"Use an ordinary evals.json file inside the {definition_scope}.",
         )
         return finalize("validate-evals", path, facts, findings, max_findings), 1
     if path_issue == "missing":
@@ -53,14 +67,39 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
             "error",
             "evals.definition_outside_skill",
             path,
-            "The eval definition resolves outside the inferred target skill root.",
-            "Keep evals.json and its parent directories inside the target skill package.",
+            f"The eval definition resolves outside the inferred {fixture_scope}.",
+            f"Keep evals.json and its parent directories inside the {definition_scope}.",
         )
         return finalize("validate-evals", path, facts, findings, max_findings), 1
 
+    target_root = definition_root
+    if target_skill_root is not None:
+        target_path = Path(os.path.abspath(os.fspath(target_skill_root)))
+        try:
+            target_info = os.lstat(target_path)
+        except FileNotFoundError as exc:
+            raise ValueError(
+                f'Target skill root must exist; received "{target_skill_root}".'
+            ) from exc
+        except OSError as exc:
+            raise ValueError(
+                f'Cannot inspect target skill root "{target_skill_root}": {exc}'
+            ) from exc
+        if not stat.S_ISDIR(target_info.st_mode) or is_reparse_stat(target_info):
+            raise ValueError(
+                "Target skill root must be an ordinary directory; "
+                f'received "{target_skill_root}".'
+            )
+        try:
+            target_root = target_path.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise ValueError(
+                f'Cannot resolve target skill root "{target_skill_root}": {exc}'
+            ) from exc
+
     text_budget = TextReadBudget()
     try:
-        data = json.loads(read_bounded_regular_utf8(skill_root, path, text_budget))
+        data = json.loads(read_bounded_regular_utf8(definition_root, path, text_budget))
     except TextReadError as exc:
         add_finding(
             findings,
@@ -68,7 +107,7 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
             exc.code,
             path,
             str(exc),
-            "Use an ordinary bounded UTF-8 eval definition inside the target skill package.",
+            f"Use an ordinary bounded UTF-8 eval definition inside the {definition_scope}.",
         )
         return finalize("validate-evals", path, facts, findings, max_findings), 1
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -96,7 +135,7 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
             "Remove misspelled fields or document them in the eval definition contract.",
         )
 
-    target_skill_md = skill_root / "SKILL.md"
+    target_skill_md = target_root / "SKILL.md"
     target_skill_name = ""
     if is_link_like(target_skill_md):
         add_finding(
@@ -113,13 +152,23 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
             "error",
             "evals.target_skill_missing",
             target_skill_md,
-            "Cannot verify skill_name because the inferred skill root has no SKILL.md.",
-            "Place evals/evals.json below the target skill root or provide its SKILL.md.",
+            "Cannot verify skill_name because the "
+            + (
+                "explicit target skill root"
+                if external_definition
+                else "inferred skill root"
+            )
+            + " has no SKILL.md.",
+            (
+                "Provide an ordinary SKILL.md inside the explicit target skill root."
+                if external_definition
+                else "Place evals/evals.json below the target skill root or provide its SKILL.md."
+            ),
         )
     else:
         try:
             target_text = read_bounded_regular_utf8(
-                skill_root, target_skill_md, text_budget
+                target_root, target_skill_md, text_budget
             )
             target_frontmatter, _, target_parse_errors = parse_frontmatter(target_text)
         except (OSError, TextReadError, UnicodeError) as exc:
@@ -149,9 +198,7 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
                 )
 
     skill_name = data.get("skill_name")
-    normalized_skill_name = (
-        skill_name.strip() if isinstance(skill_name, str) else ""
-    )
+    normalized_skill_name = skill_name.strip() if isinstance(skill_name, str) else ""
     if not normalized_skill_name:
         add_finding(
             findings,
@@ -271,7 +318,8 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
                 "evals.files_type",
                 path,
                 f"{label}.files must be an array of non-empty path strings.",
-                "Remove files or list paths relative to the skill root.",
+                "Remove files or list paths relative to the "
+                f"{'eval definition root' if external_definition else 'skill root'}.",
             )
         else:
             for file_value in files:
@@ -290,7 +338,7 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
                         "evals.file_absolute",
                         path,
                         f'{label} uses absolute fixture path "{file_value}".',
-                        "Use a fixture path relative to the target skill root.",
+                        f"Use a fixture path relative to the {fixture_scope}.",
                     )
                     continue
                 if windows_fixture.drive:
@@ -300,7 +348,7 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
                         "evals.file_nonportable",
                         path,
                         f'{label} fixture path "{file_value}" uses a Windows drive prefix.',
-                        "Use a portable POSIX-style path relative to the target skill root.",
+                        f"Use a portable POSIX-style path relative to the {fixture_scope}.",
                     )
                     continue
                 if "\\" in file_value:
@@ -310,7 +358,7 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
                         "evals.file_nonportable",
                         path,
                         f'{label} fixture path "{file_value}" uses backslash separators.',
-                        "Use a portable POSIX-style path relative to the target skill root.",
+                        f"Use a portable POSIX-style path relative to the {fixture_scope}.",
                     )
                     continue
                 if ".." in posix_fixture.parts or ".." in windows_fixture.parts:
@@ -320,7 +368,7 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
                         "evals.file_parent_traversal",
                         path,
                         f'{label} fixture path "{file_value}" contains a parent traversal.',
-                        "Keep immutable fixtures inside the target skill root.",
+                        f"Keep immutable fixtures inside the {fixture_scope}.",
                     )
                     continue
                 filename_issue = windows_filename_issue(posix_fixture.parts)
@@ -336,7 +384,7 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
                     continue
                 try:
                     resolved = resolve_within(
-                        skill_root, skill_root / fixture, strict=False
+                        definition_root, definition_root / fixture, strict=False
                     )
                 except (OSError, RuntimeError, ValueError):
                     add_finding(
@@ -344,8 +392,8 @@ def validate_evals(evals_path: Path, max_findings: int) -> tuple[dict[str, Any],
                         "error",
                         "evals.file_outside_skill",
                         path,
-                        f'{label} fixture path "{file_value}" resolves outside the target skill root.',
-                        "Use a relative fixture that remains inside the target skill root after resolution.",
+                        f'{label} fixture path "{file_value}" resolves outside the {fixture_scope}.',
+                        f"Use a relative fixture that remains inside the {fixture_scope} after resolution.",
                     )
                     continue
                 if not resolved.is_file():

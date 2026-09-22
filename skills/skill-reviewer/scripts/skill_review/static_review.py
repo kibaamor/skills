@@ -6,6 +6,7 @@ command-line usage.
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import stat
@@ -95,6 +96,73 @@ def script_help_detected(path: Path, text: str) -> bool:
     if path.suffix.casefold() in {".bat", ".cmd"}:
         return "/?" in folded
     return False
+
+
+def reachable_python_files(
+    scripts_root: Path,
+    entrypoints: set[Path],
+    script_texts: dict[Path, str],
+) -> set[Path]:
+    """Follow package-local imports from documented Python entrypoints."""
+    module_paths: dict[tuple[str, ...], set[Path]] = {}
+    package_inits: dict[tuple[str, ...], Path] = {}
+    path_modules: dict[Path, tuple[tuple[str, ...], bool]] = {}
+    for path in script_texts:
+        if path.suffix.lower() != ".py":
+            continue
+        relative = path.relative_to(scripts_root)
+        if relative.name == "__init__.py":
+            module = relative.parts[:-1]
+            package_inits[module] = path
+            is_package = True
+        else:
+            module = (*relative.parts[:-1], relative.stem)
+            is_package = False
+        module_paths.setdefault(module, set()).add(path)
+        path_modules[path] = (module, is_package)
+
+    reachable = {path for path in entrypoints if path in path_modules}
+    queue: deque[Path] = deque(reachable)
+
+    def include_module(module: tuple[str, ...]) -> None:
+        targets = set(module_paths.get(module, ()))
+        targets.update(
+            package_inits[prefix]
+            for length in range(1, len(module))
+            if (prefix := module[:length]) in package_inits
+        )
+        for target in targets - reachable:
+            reachable.add(target)
+            queue.append(target)
+
+    while queue:
+        source = queue.popleft()
+        try:
+            tree = ast.parse(script_texts[source])
+        except (SyntaxError, ValueError, MemoryError, RecursionError):
+            continue
+        source_module, is_package = path_modules[source]
+        package = source_module if is_package else source_module[:-1]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    include_module(tuple(alias.name.split(".")))
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    parents = node.level - 1
+                    if parents > len(package):
+                        continue
+                    module = package[: len(package) - parents]
+                else:
+                    module = ()
+                if node.module:
+                    module += tuple(node.module.split("."))
+                include_module(module)
+                for alias in node.names:
+                    if alias.name != "*":
+                        include_module((*module, alias.name))
+
+    return reachable
 
 
 def add_text_read_error(
@@ -532,11 +600,30 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                     "Add a conditioned pointer or remove the unused resource.",
                 )
 
-    for path in all_resource_files["scripts"]:
-        relative = path.relative_to(root)
-        if is_link_like(path):
+    script_paths = [
+        path for path in all_resource_files["scripts"] if not is_link_like(path)
+    ]
+    documented_scripts = set(script_paths) & mentioned
+    script_texts: dict[Path, str] = {}
+    for path in script_paths:
+        if path.suffix.lower() not in SCRIPT_SUFFIXES:
             continue
-        if integrity_complete and path not in mentioned:
+        try:
+            script_texts[path] = read_bounded_regular_utf8(root, path, text_budget)
+        except TextReadError as exc:
+            text_inspection_complete = False
+            add_text_read_error(findings, path, exc, reported_limits)
+
+    reachable_scripts = documented_scripts | reachable_python_files(
+        root / "scripts", documented_scripts, script_texts
+    )
+    for path in script_paths:
+        relative = path.relative_to(root)
+        if (
+            integrity_complete
+            and text_inspection_complete
+            and path not in reachable_scripts
+        ):
             add_finding(
                 findings,
                 "warning",
@@ -545,15 +632,10 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                 "This script is not named by SKILL.md or a reachable reference.",
                 "Document when to run it or remove it if it has no caller.",
             )
-        if path.suffix.lower() not in SCRIPT_SUFFIXES:
+        if path not in script_texts:
             continue
-        try:
-            script_text = read_bounded_regular_utf8(root, path, text_budget)
-        except TextReadError as exc:
-            text_inspection_complete = False
-            add_text_read_error(findings, path, exc, reported_limits)
-            continue
-        if not script_help_detected(path, script_text):
+        script_text = script_texts[path]
+        if path in documented_scripts and not script_help_detected(path, script_text):
             add_finding(
                 findings,
                 "warning",
@@ -562,6 +644,8 @@ def static_review(target: Path, max_findings: int) -> tuple[dict[str, Any], int]
                 f"No --help interface was detected for {relative}.",
                 "If this is an agent-facing CLI, provide concise non-interactive help.",
             )
+        if path not in reachable_scripts:
+            continue
         for pattern, label in INTERACTIVE_PATTERNS:
             match = first_actionable_match(script_text, pattern)
             if match:

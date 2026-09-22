@@ -3,13 +3,22 @@
 Use this reference when reviewing output quality, investigating inconsistent
 behavior, or verifying that an important revision helps.
 
+## Choose the evidence level
+
+Identity-bound existing outputs, traces, or a retained single-configuration
+pilot support `outputs_observed`. Inspect and report that evidence without
+creating a comparison campaign. Use the remaining paired workflow only for a
+comparative claim or evidence that a revision helps.
+
 ## Start with a small real test set
 
 Begin with two or three cases. Each case contains a realistic user prompt, a
 human-readable expected outcome, and optional input files. Vary wording and
 detail, and include at least one malformed, boundary, or ambiguous case.
 
-Store definitions in the target skill's `evals/evals.json`:
+Use the target skill's `evals/evals.json` as read-only input when it exists.
+Store new or modified definitions and fixtures under the isolated evaluation
+workspace, leaving the preflighted target unchanged:
 
 ```json
 {
@@ -30,13 +39,16 @@ The root accepts only `skill_name` and `evals`; a case accepts only `id`,
 unknown fields so misspellings and incompatible eval dialects are visible.
 String names and IDs are compared after trimming surrounding whitespace.
 
-Validate it before running:
+With an external definition, fixture paths are relative to its workspace root;
+`--skill-root` names the immutable skill whose name is being checked. Validate
+the definition before running:
 
 ```text
-python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py validate-evals /path/to/example-skill/evals/evals.json --pretty
+python3 /absolute/path/to/skill-reviewer/scripts/review_skill.py validate-evals /path/to/example-skill-workspace/evals/evals.json --skill-root /path/to/example-skill --pretty
 ```
 
-Observe the first outputs before adding detailed assertions. This keeps the
+Observe the first outputs before adding detailed assertions. Add those
+assertions to the workspace copy, not the target package. This keeps the
 initial test from encoding guesses about how a good solution must look.
 
 ## Set the success bar
@@ -119,15 +131,17 @@ Obtain package identities from a successful static preflight where
 `package_inventory_complete` and `package_digest_complete` are true. Its
 `skill-package-manifest-v1` digest covers every ordinary package file with
 path-sensitive SHA-256 framing; per-file and whole-package budgets are reported
-in `facts.limits`. The `package_digest_bytes` value is the logical content size
-of one manifest. The aggregator validates identity syntax and consistency but
-does not read either package to recreate the digest.
+in `facts.limits`. `package_digest_bytes` is the number of ordinary-file content
+bytes hashed against `limits.total_digest_bytes`. When the digest is complete,
+it equals the sum of package file sizes; it excludes manifest framing and may
+be partial after a digest failure. The aggregator validates identity syntax and
+consistency but does not read either package to recreate the digest.
 
-Freeze each package before its preflight and keep it unchanged through the
-report. Compute the baseline identity once. For each candidate iteration,
-finish the edits, run preflight once, and reuse that identity for every run in
-the iteration. The workflow relies on package immutability; it does not monitor
-the package for later changes.
+Starting preflight is the freeze boundary. Finish every edit first, then keep
+the package unchanged through the report. Compute the baseline identity once;
+for each candidate iteration, reuse its one preflight identity for every run.
+The workflow relies on package immutability; it does not monitor the package for
+later changes.
 
 After freezing `evaluation-plan.json`, compute `plan_identity` as SHA-256 over
 its exact UTF-8 bytes. Whitespace and key order therefore affect the identity.
@@ -169,12 +183,17 @@ first output change the second run's prompt or contract.
   baseline and copy it to a new isolated candidate before editing. Compare the
   frozen candidate with that baseline.
 
+For `without_skill`, baseline `package_identity` identifies the frozen package
+intentionally withheld and may equal the candidate identity. The configuration
+record and retained harness trace or load manifest must prove that the package
+was not loaded.
+
 Use this layout without overwriting prior iterations:
 
 ```text
 <skill>-workspace/
 ├── evaluation-plan.json
-├── candidate-N/                  # edited, preflighted once, then frozen
+├── candidate-N/                  # frozen when its one preflight starts
 └── iteration-N/
     ├── eval-<case>/
     │   ├── with_skill/
@@ -319,8 +338,9 @@ Report quality, time, and tokens separately.
 
 When the same review request authorizes remediation, use failed assertions,
 available feedback, and transcripts to copy the previous frozen candidate into
-a new candidate directory and revise the supported root cause there. Preflight
-the new candidate once, freeze it, then rerun the entire suite in
+a new candidate directory and revise the supported root cause there. Finish
+every edit; starting its one preflight freezes the candidate. Then rerun the
+entire suite in
 `iteration-N+1`, not only the failures. Otherwise, report the supported
 revision without editing. Succeed when the frozen criteria pass. At the
 iteration limit, stop and report every unmet criterion rather than weakening
