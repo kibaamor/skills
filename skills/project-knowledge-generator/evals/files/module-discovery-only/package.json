@@ -1,0 +1,8 @@
+{
+  "name": "module-discovery-only-fixture",
+  "private": true,
+  "main": "src/app.js",
+  "scripts": {
+    "test": "node --test test/guild-leaderboard.test.js"
+  }
+}

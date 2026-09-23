@@ -18,6 +18,16 @@ Apply these checks to the working evidence ledger.
 - Confirm cardinality, lifecycle, duration, status, and ownership from behavior-bearing code or focused tests.
 - Treat names and prose documentation as leads. When behavior-bearing evidence is incomplete, label the claim as representative or report a specific unknown.
 
+## Runtime Boundaries
+
+For a claim that depends on data or effects crossing a persistence, parser, SDK, cache, queue, transport, or serialization boundary:
+
+- Establish reachability from an actual registration, composition root, or entry point through the producer and consumer. Unreferenced helpers, similarly named adapters, declared schemas or types, hand-built objects, and test-only doubles are candidate evidence, not proof of the running path.
+- Compare the reachable producer's runtime type and prototype, intervening transformations, consumer access operations, serializer, and focused-test fixture representation. When a repository-pinned library exposes an installed no-I/O hydrate, parse, or decode path, run its value through the actual consumer and relevant serializer. Record resulting values, exceptions, or exposure surface. Classify a decisive reproduced mismatch as a current defect and trace its downstream consequence; reserve an unknown or guardrail gap for an unavailable or inconclusive probe.
+- For ordered effects, label each step as invocation, enqueue, dispatch, remote acceptance, or remote application. An earlier `await` establishes external order only when it completes at the required layer and propagates failure; differing delivery paths, fallback returns, or concurrent replay limit the claim to local invocation order. For multi-step migration or reconciliation, include partial failure and queued replay or concurrency. A mocked call-order test proves only the invocation order implemented by that double; compare its completion semantics with the reachable adapter.
+- Trace swallowed errors, batching, retries, acknowledgements, and fallback values back to the caller-visible result. When failure is swallowed or no durable delivery or confirmation guarantee exists, describe caller-visible success as best-effort rather than a successful repair or synchronization. When durable asynchronous acceptance or delivery guarantees are verified, state the accepted or queued state and its guarantee instead of labelling it best-effort.
+- If a safe production-shaped or production-path check is unavailable, narrow the published claim and report the representation, completion, ordering, or guardrail gap instead of inferring compatibility.
+
 ## Functional Module Boundaries
 
 - Trace at least one real trigger or caller through registration, gates, dispatch, behavior-bearing code, state changes, side effects, and the observable outcome.

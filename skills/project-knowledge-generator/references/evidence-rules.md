@@ -17,6 +17,13 @@ Names and prose are leads, not proof of runtime behavior. Tests prove only the b
 - **Derived**: reflects another artifact, such as a cache, report, lockfile, index, or diagram. Use it as a lead unless repository policy makes it authoritative for the claim.
 - **Duplicated**: repeats a fact controlled elsewhere. Verify it against the controlling source.
 - **Documentation-only intent**: records rationale, policy, ownership, or target architecture not established by current implementation. Label it as intent.
+- **Discovery-only**: a user-designated temporary or deletion-bound artifact, or one prohibited as a final reference. Decompose it into claims under the rules below; do not promote it wholesale.
+
+## Discovery-only Inputs
+
+- Use behavior, path, version, command, and configuration claims from discovery-only inputs only as search leads. Publish them only when durable controlling source, configuration, focused tests, or command results independently meet the confidence standard.
+- Transfer durable rationale, accepted tradeoffs or risks, non-goals, and maintenance constraints to their contract owner only when they apply to evidenced implemented behavior and have no contradiction. State them as rationale or constraints, not as proof of behavior. Treat repository-unverifiable external state as a prerequisite or unknown, and speculative future work as intent.
+- On output surfaces covered by the user's prohibition, do not name, cite, link, or direct readers to the discovery-only artifact. The durable owner must remain understandable and navigable without it.
 
 ## Confidence
 

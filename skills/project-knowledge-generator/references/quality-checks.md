@@ -15,15 +15,18 @@ Run every applicable check after creating or refreshing project knowledge.
 - Source-of-truth, generated, derived, duplicated, and documentation-only facts are classified correctly.
 - Equal-authority conflicts, weak evidence, missing prerequisites, and absent repository signals are reported as specific unknowns rather than published as facts.
 - Completeness and absence claims cover their full stated scope; other inventories are labelled representative.
-- Functional module identity, reachability, observable outcomes, included anchors, boundary edges, and exclusions are verified or reported as specific unknowns. Unrelated sibling evidence does not satisfy the module sufficiency gate.
+- Functional module identity, reachability, observable outcomes, included anchors, boundary edges, and exclusions are verified or reported as specific unknowns. For each documented lifecycle or mutation flow, the knowledge names an actual trigger or caller and observable outcome; a containing-file link alone does not establish reachability. Unrelated sibling evidence does not satisfy the module sufficiency gate.
+- Current-state claims seeded by discovery-only material independently meet the confidence standard from durable controlling evidence; transferred rationale and constraints remain distinguishable from implemented behavior and external state.
+- Every runtime-boundary claim ends in one evidenced outcome: verified behavior or compatibility, including any accepted or queued delivery semantics; a verified defect with downstream consequences; or a specific unknown. Reachability, completion, acknowledgement, and external-effect ordering are traced; hand-built fixtures and mocked call order are not treated as production proof.
 
 ## Utility and Consistency
 
 - Terminology, context names, component names, boundaries, paths, and source classifications agree across the complete selected knowledge set.
+- Entry-point and summary documents do not state stronger compatibility, ordering, or success guarantees than their detailed owners; defects and unknowns remain visible wherever the affected behavior would otherwise appear operational.
 - Repository and module documents agree on ownership: root knowledge retains global and cross-module facts, while module knowledge links to shared or external owners instead of duplicating them.
 - Every documented common or high-risk workflow leads from context and responsible code to an available action or check and an observable result. Report a precise agent-legibility or guardrail gap when the chain is incomplete.
 - Each retained paragraph helps an agent decide where to work, what to preserve, which source is authoritative, or how to validate. Remove the rest.
-- In full Functional module work, the entry pointer reaches `MODULE.md`, or the report names the user-imposed discovery gap. The diff changes only the module knowledge set, the minimal pointer in a declared repository knowledge index, evidenced module-specific pointers, commands, rules, or checks in the applicable `AGENTS.md`, and a root `CONTEXT-MAP.md` update required by a selected module glossary.
+- In full Functional module work, the entry pointer reaches `MODULE.md`, or the report names the user-imposed discovery gap. The diff changes only the module knowledge set, the minimal pointer in a declared repository knowledge index, evidenced module-specific pointers, commands, rules, or checks in the applicable `AGENTS.md`, and a root `CONTEXT-MAP.md` update required by a selected module glossary. Against the pre-edit bytes, inspect every hunk this run introduced in a pre-existing root or index document: remove any introduced hunk that is not one of those allowed module additions, and report related stale repository-wide guidance without editing it.
 - In module CODE-MAP-only work, `CODE-MAP.md` is the only changed knowledge document; pre-existing missing or stale `MODULE.md`, discovery pointer, or boundary claims remain unchanged and are reported as gaps.
 - In Refresh mode, the diff contains only affected facts or user-requested presentation changes. A CODE-MAP-only refresh changes no other repository or module knowledge document.
 
@@ -36,6 +39,7 @@ Use repository-configured documentation checks when they exist. If no configured
 - Heading levels progress without skipping required hierarchy for the document's structure.
 - Every Mermaid block has a declared diagram type and no obvious unbalanced brackets, quotes, or code fences.
 - Every documented command names an existing script, binary, Make target, task, or repository file that controls it.
+- For each final-reference prohibition, no created or modified knowledge document contains the artifact's exact path, a local link to it, its unambiguous basename, or an instruction to consult it; removing the artifact leaves every knowledge link resolvable.
 
 Report missing executables or environment prerequisites. Use the repository's Mermaid checker when configured because the manual Mermaid check is only a syntax screen, not a full parser.
 
