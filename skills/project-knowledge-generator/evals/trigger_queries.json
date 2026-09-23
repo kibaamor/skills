@@ -98,5 +98,35 @@
     "query": "Localize CODE-MAP.md into Chinese without changing its technical content.",
     "should_trigger": false,
     "split": "validation"
+  },
+  {
+    "query": "Create a dedicated coding-agent knowledge base for the checkout functional module, including its boundary, flow, source map, and focused checks.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Explain how the checkout module works in chat, but do not create or edit project docs.",
+    "should_trigger": false,
+    "split": "train"
+  },
+  {
+    "query": "Refresh the payment-retry module knowledge base after its entry point moved, without rewriting repository-wide docs.",
+    "should_trigger": true,
+    "split": "validation"
+  },
+  {
+    "query": "Rewrite the introduction in the checkout module's existing MODULE.md to sound friendlier.",
+    "should_trigger": false,
+    "split": "validation"
+  },
+  {
+    "query": "Create only a source-backed CODE-MAP.md for the checkout functional module and leave its other knowledge docs untouched.",
+    "should_trigger": true,
+    "split": "train"
+  },
+  {
+    "query": "Fully regenerate the payment functional-module knowledge base from current code and tests.",
+    "should_trigger": true,
+    "split": "validation"
   }
 ]

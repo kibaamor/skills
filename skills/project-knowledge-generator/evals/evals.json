@@ -125,6 +125,147 @@
         "ADR rationale remains owned by the ADR instead of being duplicated into ARCHITECTURE.md",
         "Stale CODE-MAP.md paths are corrected from current source evidence"
       ]
+    },
+    {
+      "id": "create-functional-module-knowledge",
+      "prompt": "Create a dedicated coding-agent knowledge base for the checkout functional module in evals/files/module-knowledge. Keep repository-wide and unrelated profile knowledge with their existing owners.",
+      "expected_output": "A module knowledge set rooted at docs/project-knowledge/modules/checkout with MODULE.md as its entry, only value-tested supporting documents, and one minimal discovery pointer while unrelated root knowledge and product source remain unchanged.",
+      "files": [
+        "evals/files/module-knowledge/AGENTS.md",
+        "evals/files/module-knowledge/ARCHITECTURE.md",
+        "evals/files/module-knowledge/PRODUCT.md",
+        "evals/files/module-knowledge/package.json",
+        "evals/files/module-knowledge/src/http/routes.ts",
+        "evals/files/module-knowledge/src/checkout/complete-checkout.ts",
+        "evals/files/module-knowledge/src/inventory/reserve-stock.ts",
+        "evals/files/module-knowledge/src/payments/capture-payment.ts",
+        "evals/files/module-knowledge/src/profile/update-profile.ts",
+        "evals/files/module-knowledge/test/checkout.test.ts"
+      ],
+      "assertions": [
+        "MODULE.md identifies checkout from its registered trigger, orchestration, observable result, and focused test rather than treating one directory as the boundary",
+        "Inventory and payment behavior is recorded as dependency boundary evidence without inventing ownership or absorbing their independent behavior into checkout",
+        "Only supporting documents whose module-scoped value tests pass are created",
+        "The existing AGENTS.md guidance is preserved and receives exactly one resolving conditional discovery pointer; any added module command or check is backed by package.json",
+        "The unrelated root ARCHITECTURE.md, profile source, and all product source files remain unchanged",
+        "Every module knowledge link resolves with exact path case"
+      ]
+    },
+    {
+      "id": "module-insufficient-evidence-stops",
+      "prompt": "Create a dedicated coding-agent knowledge base for the returns functional module in evals/files/module-knowledge.",
+      "expected_output": "No returns module knowledge is created because returns exists only as planned prose and lacks a reachable trigger, behavior-bearing implementation, and observable outcome; checkout evidence does not satisfy the returns sufficiency gate.",
+      "files": [
+        "evals/files/module-knowledge/AGENTS.md",
+        "evals/files/module-knowledge/PRODUCT.md",
+        "evals/files/module-knowledge/package.json",
+        "evals/files/module-knowledge/src/http/routes.ts",
+        "evals/files/module-knowledge/src/checkout/complete-checkout.ts"
+      ],
+      "assertions": [
+        "The functional-module sufficiency gate is applied to returns rather than to the repository as a whole",
+        "Planned prose is classified as intent and does not prove current module behavior",
+        "No returns MODULE.md, supporting knowledge document, or AGENTS.md pointer is created",
+        "The report names the missing trigger, implementation, and outcome and states the inspected scope"
+      ]
+    },
+    {
+      "id": "refresh-functional-module-isolation",
+      "prompt": "Refresh the checkout functional-module knowledge in evals/files/module-refresh after checkout orchestration moved. Preserve supported guidance and keep repository-level knowledge isolated.",
+      "expected_output": "The existing checkout module key and knowledge location stay stable, stale module paths are corrected from current registration, source, tests, and scripts, and unrelated root knowledge remains byte-for-byte unchanged.",
+      "files": [
+        "evals/files/module-refresh/AGENTS.md",
+        "evals/files/module-refresh/ARCHITECTURE.md",
+        "evals/files/module-refresh/CODE-MAP.md",
+        "evals/files/module-refresh/package.json",
+        "evals/files/module-refresh/docs/project-knowledge/modules/checkout/MODULE.md",
+        "evals/files/module-refresh/docs/project-knowledge/modules/checkout/ARCHITECTURE.md",
+        "evals/files/module-refresh/docs/project-knowledge/modules/checkout/CODE-MAP.md",
+        "evals/files/module-refresh/src/http/routes.ts",
+        "evals/files/module-refresh/src/notifications/send.ts",
+        "evals/files/module-refresh/src/purchase/complete-checkout.ts",
+        "evals/files/module-refresh/test/purchase/complete-checkout.test.ts"
+      ],
+      "assertions": [
+        "The existing checkout module key and docs/project-knowledge/modules/checkout location remain stable",
+        "Stale module paths are corrected by tracing the current route registration through orchestration and its focused test",
+        "Supported human-authored separation guidance remains intact",
+        "Root ARCHITECTURE.md and CODE-MAP.md remain byte-for-byte unchanged",
+        "The AGENTS.md discovery pointer remains unchanged when it already resolves",
+        "The diff contains no product-source or unrelated knowledge changes"
+      ]
+    },
+    {
+      "id": "module-code-map-only-with-entry-gaps",
+      "prompt": "Create only a CODE-MAP.md for the checkout functional module in evals/files/module-knowledge. Leave every other knowledge document unchanged.",
+      "expected_output": "Only docs/project-knowledge/modules/checkout/CODE-MAP.md is created from the checkout registration, orchestration, dependency edges, and focused test; the pre-existing absence of MODULE.md and a discovery pointer is reported without repairing either gap.",
+      "files": [
+        "evals/files/module-knowledge/AGENTS.md",
+        "evals/files/module-knowledge/ARCHITECTURE.md",
+        "evals/files/module-knowledge/package.json",
+        "evals/files/module-knowledge/src/http/routes.ts",
+        "evals/files/module-knowledge/src/checkout/complete-checkout.ts",
+        "evals/files/module-knowledge/src/inventory/reserve-stock.ts",
+        "evals/files/module-knowledge/src/payments/capture-payment.ts",
+        "evals/files/module-knowledge/test/checkout.test.ts"
+      ],
+      "assertions": [
+        "Only the selected module CODE-MAP.md is created",
+        "AGENTS.md, root ARCHITECTURE.md, MODULE.md, and every other knowledge document remain byte-for-byte unchanged",
+        "The code map links the registered trigger, controlling orchestration, dependency edges, and focused test with exact path case",
+        "The report names the missing MODULE.md and discovery pointer as pre-existing gaps",
+        "The report explicitly confirms module CODE-MAP-only isolation"
+      ]
+    },
+    {
+      "id": "regenerate-functional-module-knowledge",
+      "prompt": "Fully regenerate the checkout functional-module knowledge in evals/files/module-refresh from current evidence. Preserve supported guidance and keep repository-level knowledge isolated.",
+      "expected_output": "Mode is Create (full regeneration); the stable checkout key and knowledge location are reused, the complete selected module set reflects current source and tests, supported guidance remains, and unrelated root knowledge is unchanged.",
+      "files": [
+        "evals/files/module-refresh/AGENTS.md",
+        "evals/files/module-refresh/ARCHITECTURE.md",
+        "evals/files/module-refresh/CODE-MAP.md",
+        "evals/files/module-refresh/package.json",
+        "evals/files/module-refresh/docs/project-knowledge/modules/checkout/MODULE.md",
+        "evals/files/module-refresh/docs/project-knowledge/modules/checkout/ARCHITECTURE.md",
+        "evals/files/module-refresh/docs/project-knowledge/modules/checkout/CODE-MAP.md",
+        "evals/files/module-refresh/src/http/routes.ts",
+        "evals/files/module-refresh/src/notifications/send.ts",
+        "evals/files/module-refresh/src/purchase/complete-checkout.ts",
+        "evals/files/module-refresh/test/purchase/complete-checkout.test.ts"
+      ],
+      "assertions": [
+        "The report identifies Mode as Create with full regeneration noted",
+        "The existing checkout module key and knowledge location remain stable",
+        "The selected module documents are rebuilt from the current route, orchestration, package script, and focused test",
+        "Supported human-authored separation guidance remains intact",
+        "Root ARCHITECTURE.md, root CODE-MAP.md, product source, and unrelated knowledge remain byte-for-byte unchanged"
+      ]
+    },
+    {
+      "id": "module-context-linked-owner-updates",
+      "prompt": "Create a dedicated coding-agent knowledge base for the Checkout functional module in evals/files/module-context. Follow the repository's existing knowledge index and preserve repository-level ownership.",
+      "expected_output": "The Checkout module set includes a value-tested CONTEXT.md for its distinct meaning of hold; the declared project knowledge index gets one module pointer, the root CONTEXT-MAP.md gets only the required Checkout context entry and relationship, and AGENTS.md remains unchanged.",
+      "files": [
+        "evals/files/module-context/AGENTS.md",
+        "evals/files/module-context/CONTEXT-MAP.md",
+        "evals/files/module-context/DOMAIN.md",
+        "evals/files/module-context/docs/project-knowledge/README.md",
+        "evals/files/module-context/docs/project-knowledge/contexts/accounts/CONTEXT.md",
+        "evals/files/module-context/package.json",
+        "evals/files/module-context/src/accounts/place-hold.ts",
+        "evals/files/module-context/src/checkout/place-hold.ts",
+        "evals/files/module-context/src/http/routes.ts",
+        "evals/files/module-context/test/checkout-hold.test.ts"
+      ],
+      "assertions": [
+        "Checkout MODULE.md is created at the established docs/project-knowledge/modules/checkout location and is reachable through exactly one new pointer in the declared project knowledge index",
+        "AGENTS.md remains byte-for-byte unchanged because it already points to the declared knowledge index",
+        "A module CONTEXT.md defines only the evidenced Checkout meaning of hold and links rather than duplicates the Accounts definition",
+        "The root CONTEXT-MAP.md receives only the Checkout context index and conflicting-term relationship required by its owner contract",
+        "The existing Accounts glossary, domain evidence, product source, and tests remain unchanged",
+        "Every new or modified local Markdown link resolves with exact path case"
+      ]
     }
   ]
 }

@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "test:checkout": "vitest run test/purchase/complete-checkout.test.ts"
+  },
+  "devDependencies": {
+    "vitest": "4.1.11"
+  }
+}
