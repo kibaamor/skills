@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
-import { formatDailyTotal } from "../src/reporting";
+import { routes } from "../src/http/routes";
 
 test("formats daily totals", () => {
-  expect(formatDailyTotal({ day: "Monday", total: 12 })).toBe("Monday: 12.00");
+  expect(routes["GET /reports/daily"]({ day: "Monday", total: 12 })).toBe(
+    "Monday: 12.00",
+  );
 });

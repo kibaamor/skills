@@ -1,7 +1,8 @@
 {
   "scripts": {
     "test": "vitest run",
-    "test:checkout": "vitest run test/checkout.test.ts"
+    "test:checkout": "vitest run test/checkout.test.ts",
+    "test:profile": "vitest run test/profile.test.ts"
   },
   "devDependencies": {
     "vitest": "4.1.11"
