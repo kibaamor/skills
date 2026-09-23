@@ -32,7 +32,7 @@ Create a compact, evidence-backed knowledge system that helps agents find where 
    In Refresh mode, identify the evidence delta before editing and report the baseline used:
    - If the user supplied a base ref, use it.
    - Otherwise use Git metadata only when it belongs to the selected repository root or requested fixture scope. Inspect `git status --short`, `git diff --name-status -M`, and `git diff --cached --name-status -M` there. For a functional module, map changed paths to its evidenced entry points, implementation, tests, and boundary edges; do not filter only by one directory.
-   - If `@{upstream}` exists for that same root, compute `git merge-base HEAD @{upstream}` and inspect `git diff --name-status -M <base>...HEAD`.
+   - If `@{upstream}` exists for that same root, compute `git merge-base HEAD '@{upstream}'` and inspect `git diff --name-status -M <base>...HEAD`.
    - If the selected scope is not a Git worktree, or only a parent repository has unrelated metadata, do not infer a delta from the parent repository. Scan the full selected scope and report that no reliable baseline existed.
 
    Keep one working evidence ledger. Record each user requirement, high-risk claim, non-obvious current-state claim, completeness or absence claim, stale claim, and contradiction as a row with these fields:

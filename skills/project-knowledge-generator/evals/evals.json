@@ -12,6 +12,7 @@
         "evals/files/create-basic/test/orders.test.ts"
       ],
       "assertions": [
+        "AGENTS.md and CODE-MAP.md are created because their document-contract value tests pass",
         "Created documents satisfy the document-contract value tests instead of creating placeholders",
         "CONTEXT.md is not created when candidate terms are safely recoverable from obvious source and test names",
         "Runnable commands are traced to package.json scripts before publication",
@@ -52,6 +53,7 @@
       ],
       "assertions": [
         "No knowledge document except CODE-MAP.md is modified",
+        "CODE-MAP.md maps the HTTP API to src/api/http.ts, the sync worker to src/workers/sync.ts, and the focused test to test/sync.test.ts",
         "Every retained CODE-MAP.md link resolves with exact path case",
         "The report explicitly confirms CODE-MAP-only isolation was checked"
       ]
@@ -199,6 +201,7 @@
       "files": [
         "evals/files/module-knowledge/AGENTS.md",
         "evals/files/module-knowledge/ARCHITECTURE.md",
+        "evals/files/module-knowledge/PRODUCT.md",
         "evals/files/module-knowledge/package.json",
         "evals/files/module-knowledge/src/http/routes.ts",
         "evals/files/module-knowledge/src/checkout/complete-checkout.ts",
@@ -285,7 +288,7 @@
       "assertions": [
         "No created or modified knowledge file names, links, cites, or directs readers to the temporary delivery summary, and all knowledge remains understandable with that input removed",
         "The declared composition root and concrete store independently prove that consecutive positive writes report cumulative totals; the stale 500 threshold and planned monthly board are not published as current behavior",
-        "Maximum-score retention is treated as repository-unverifiable external state, while compatible convergence and region-migration rationale is transferred without using the temporary input as proof of behavior",
+        "Maximum-score retention is treated as repository-unverifiable external state, and only the compatible cumulative-convergence rationale is transferred from the temporary input",
         "The region-migration owner passage traces its reachable caller and does not claim externally observed report-before-delete ordering: in that flow, rather than only in a shared transport summary, it distinguishes queued report from direct delete, local invocation from remote application, and the stubbed call-order test from production transport behavior",
         "The member-score read contract is reported as currently defective: the reachable composed path hydrates a Map that the consumer reads with object property access and Object.keys, producing zero scores and missing departed contributors despite the passing plain-object unit fixture",
         "The maintenance-refresh owner passage preserves the delete and report completion layers and fallbacks rather than relying on a shared transport summary, and describes the operation as best-effort because its composed path can return a score after delete failure is swallowed and report is only queued",
