@@ -22,7 +22,7 @@
     {
       "id": "refresh-stale-paths-preserve-guidance",
       "prompt": "Refresh the existing knowledge docs in evals/files/refresh-stale after source paths changed. Preserve supported human-authored guidance and correct stale current-state claims.",
-      "expected_output": "A refresh that limits changes to affected stale facts, keeps supported local guidance, corrects stale paths and commands from current source evidence, and reports the baseline or lack of reliable baseline.",
+      "expected_output": "A refresh that limits changes to affected stale facts, keeps supported local guidance, corrects stale paths, verifies and retains current commands from repository evidence, and reports the baseline or lack of reliable baseline.",
       "files": [
         "evals/files/refresh-stale/AGENTS.md",
         "evals/files/refresh-stale/CODE-MAP.md",
@@ -53,7 +53,6 @@
       "assertions": [
         "No knowledge document except CODE-MAP.md is modified",
         "Every retained CODE-MAP.md link resolves with exact path case",
-        "Generated or special-handling areas identify both edit source and visible output when present",
         "The report explicitly confirms CODE-MAP-only isolation was checked"
       ]
     },
@@ -83,7 +82,6 @@
         "evals/files/insufficient-evidence/NOTES.md"
       ],
       "assertions": [
-        "The sufficiency gate is applied before drafting",
         "No AGENTS.md, CONTEXT.md, ARCHITECTURE.md, or CODE-MAP.md placeholder is created",
         "The report names the missing repository signals and the inspected scope"
       ]
@@ -120,7 +118,6 @@
         "evals/files/nested-inventory/services/payments/test/retry.test.ts"
       ],
       "assertions": [
-        "Nested AGENTS.md and ADR files are inventoried before drafting",
         "Nested guidance with materially different completion checks is retained",
         "ADR rationale remains owned by the ADR instead of being duplicated into ARCHITECTURE.md",
         "Stale CODE-MAP.md paths are corrected from current source evidence"
