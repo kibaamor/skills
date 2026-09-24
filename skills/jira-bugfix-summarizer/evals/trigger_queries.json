@@ -1,0 +1,22 @@
+[
+  {"query":"Summarize this already-fixed Jira checkout bug for product stakeholders.","should_trigger":true,"split":"train"},
+  {"query":"Turn the completed PAY-4821 fix details into a Jira-ready comment, but only draft it.","should_trigger":true,"split":"train"},
+  {"query":"Jira OPS-771 is fixed; inspect the issue read-only and prepare the stakeholder update.","should_trigger":true,"split":"train"},
+  {"query":"I have the impact, root cause, release link, and QA result for a completed bugfix. Write the stakeholder summary.","should_trigger":true,"split":"train"},
+  {"query":"把这个已经修复的 Jira 缺陷整理成给业务看的修复总结，不要提交到 Jira。","should_trigger":true,"split":"train"},
+  {"query":"Draft the impact, cause, effective fix record, and validation for this resolved Jira defect.","should_trigger":true,"split":"train"},
+  {"query":"Draft a concise customer-facing bugfix note from this completed Jira issue and its release evidence.","should_trigger":true,"split":"validation"},
+  {"query":"Make this fixed incident's Jira comment readable for non-technical stakeholders.","should_trigger":true,"split":"validation"},
+  {"query":"The code, configuration, and migration fix are complete; summarize the Jira bug with traceability.","should_trigger":true,"split":"validation"},
+  {"query":"We already fixed the defect; produce the paste-ready Jira update with confirmed and suggested validation separated.","should_trigger":true,"split":"validation"},
+  {"query":"Diagnose why Jira PAY-4821 still reproduces and find the root cause.","should_trigger":false,"split":"train"},
+  {"query":"Implement the fix for this Jira bug and add unit tests.","should_trigger":false,"split":"train"},
+  {"query":"Run live production validation for the payment fix and report the result.","should_trigger":false,"split":"train"},
+  {"query":"Deploy the Jira fix to production and monitor the rollout.","should_trigger":false,"split":"train"},
+  {"query":"Update CHANGELOG.md and the release notes with this bugfix.","should_trigger":false,"split":"train"},
+  {"query":"Post this already-written comment to Jira and transition the issue to Done.","should_trigger":false,"split":"train"},
+  {"query":"Create a Jira ticket for this newly reported problem and assign it.","should_trigger":false,"split":"validation"},
+  {"query":"Review the pull request that claims to fix Jira PAY-4821.","should_trigger":false,"split":"validation"},
+  {"query":"Summarize this active incident for executives; nobody knows whether it is fixed.","should_trigger":false,"split":"validation"},
+  {"query":"Rewrite this customer-support reply about a bug in friendlier language.","should_trigger":false,"split":"validation"}
+]

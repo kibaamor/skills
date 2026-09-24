@@ -1,3 +1,3 @@
 interface:
   display_name: "Jira Bugfix Summarizer"
-  short_description: "Summarize fixed Jira bugs for stakeholders"
+  short_description: "Draft stakeholder summaries for fixed Jira bugs"
