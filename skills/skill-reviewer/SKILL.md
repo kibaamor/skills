@@ -98,20 +98,27 @@ separately authorized behavioral evaluation, first read the entry point and
 reachable local helpers, then use an isolated fixture with no undeclared network,
 credential, or external side effects.
 
-## Select the relevant criteria
+## Route the review branch
 
-- For a broad audit, or for the body, references, scripts, scope, and context
-  design, read [references/review-criteria.md](references/review-criteria.md).
-- For the trigger description, false positives, or missed invocations, read
-  [references/trigger-evaluation.md](references/trigger-evaluation.md).
-- For output quality, inconsistent behavior, regressions, or evidence that a
-  revision helps, read
-  [references/behavior-evaluation.md](references/behavior-evaluation.md).
+- **Static audit**: for the body, references, scripts, scope, and context design,
+  read only the [static review criteria](references/review-criteria.md).
+- **Trigger diagnosis**: for false positives, missed invocations, or description
+  boundaries, read only the
+  [trigger evaluation guide](references/trigger-evaluation.md).
+- **Existing-output observation**: when outputs or traces already exist and no
+  comparative claim is requested, read only the
+  [existing-output observation contract](references/existing-output-observation.md).
+  Do not create or run a comparison campaign on this branch.
+- **Paired proof**: for a regression check, comparative claim, or evidence that
+  a revision helps, read the
+  [paired-comparison workflow](references/paired-comparison.md) and the
+  [evaluation artifact contract](references/evaluation-artifact-contract.md)
+  before creating or running the campaign.
 
-Load only the references that the current review branch needs. In a broad
-audit, start with the static criteria; add the trigger reference only when
-invocation is in scope, and add the behavioral reference only when outputs,
-traces, eval evidence, or a request for behavioral proof is in scope.
+Load only the references named by the selected branch. In a broad audit, start
+with the static criteria and add another branch only when that concern is
+explicitly in scope; observing existing outputs does not imply authorization to
+run new evaluations or compare configurations.
 
 Inspection is complete when every in-scope package file and every criterion in
 the selected references is accounted for by evidence, an explicit
@@ -181,11 +188,11 @@ explicitly authorizes fixing them.
    environment's official skill validator. If the preflight blocks it or the
    validator is unavailable, report the YAML/specification gap and keep
    structure assurance below `official_validator_checked`.
-2. When invocation is in scope, follow the query validation and routing checks
-   in [references/trigger-evaluation.md](references/trigger-evaluation.md).
+2. When invocation is in scope, follow the selected trigger-diagnosis branch.
    Query-file validation alone supports only `query_set_checked`.
-3. When behavior is in scope, follow the observation or paired-comparison
-   branch in [references/behavior-evaluation.md](references/behavior-evaluation.md).
+3. When behavior is in scope, follow only the observation or paired-proof branch
+   selected above; do not broaden an observation into new execution or a
+   comparison.
 4. For each remediation iteration, finish the edits to the original target.
    Starting the boundary preflight freezes that revision: establish its
    identity once, then keep it unchanged through validation and evaluation. A
