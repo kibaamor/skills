@@ -45,7 +45,10 @@ skills/
     evals/         # optional evaluation fixtures and cases
 ```
 
-Each published skill lives in `skills/<name>/SKILL.md`. Example skills used only as evaluation fixtures live under an `evals/` directory and are not top-level install targets.
+Each published skill lives in `skills/<name>/SKILL.md`. Example skills used only
+as evaluation fixtures live under an `evals/` directory. Their entry points use
+the dormant name `SKILL.fixture.md`; the relevant test runner materializes
+`SKILL.md` only in an isolated temporary copy.
 
 ## Troubleshooting
 

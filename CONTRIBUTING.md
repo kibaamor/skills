@@ -99,8 +99,17 @@ case that was not executed.
 If you change the bundled `skill-reviewer` script or its tests, run:
 
 ```bash
-python3 -B -m unittest discover -s skills/skill-reviewer/evals -p 'test_*.py'
+python3 -B skills/skill-reviewer/evals/run_tests.py
 ```
+
+The runner copies `skill-reviewer` to a temporary directory and materializes
+its dormant `SKILL.fixture.md` test entries as `SKILL.md` there. The source and
+installed skill remain free of nested skill entry points.
+
+To run another test or behavior-evaluation command against the prepared copy,
+append `-- COMMAND`. The command runs from the temporary skill root, also
+available as `SKILL_REVIEWER_TEST_ROOT`; write retained results outside that
+temporary directory.
 
 For any changed script, also exercise `--help`, a safe representative input,
 and expected failure behavior. After staging all intended files, inspect the
