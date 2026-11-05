@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:multi-model-code-review:discovery-result:2.1",
+  "title": "Discovery Reviewer Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "reviewer_id", "review_status", "summary", "scope", "spec_compliance", "findings", "recommendations", "checks", "checks_not_run", "limitations"],
+  "properties": {
+    "schema_version": {"const": "2.1"},
+    "reviewer_id": {"type": "string", "pattern": "^D[1-9][0-9]*$"},
+    "review_status": {"enum": ["complete", "partial", "blocked"]},
+    "summary": {"type": "string", "minLength": 1},
+    "scope": {"type": "string", "minLength": 1},
+    "spec_compliance": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["requirement", "status", "evidence"], "properties": {"requirement": {"type": "string", "minLength": 1}, "status": {"enum": ["satisfied", "partially_satisfied", "not_satisfied", "not_verifiable"]}, "evidence": {"type": "string"}}}},
+    "findings": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["local_id", "kind", "title", "category", "location", "evidence", "trigger", "impact", "severity", "introduction_status", "confidence"], "properties": {"local_id": {"type": "string", "pattern": "^F-[A-Za-z0-9._-]+$"}, "kind": {"enum": ["defect", "engineering_quality"]}, "title": {"type": "string", "minLength": 8}, "category": {"enum": ["requirements", "correctness", "security", "concurrency", "lifecycle", "reliability", "protocol", "data_integrity", "performance", "architecture", "maintainability", "testability", "api_design", "other"]}, "location": {"type": "string", "minLength": 1}, "evidence": {"type": "string", "minLength": 1}, "trigger": {"type": "string", "minLength": 1}, "impact": {"type": "string", "minLength": 1}, "severity": {"enum": ["critical", "high", "medium", "low"]}, "introduction_status": {"enum": ["introduced", "pre_existing", "unknown"]}, "confidence": {"enum": ["high", "medium", "low"]}}}},
+    "recommendations": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["local_id", "title", "location", "current_approach", "alternative", "benefits", "tradeoffs", "project_fit"], "properties": {"local_id": {"type": "string", "pattern": "^R-[A-Za-z0-9._-]+$"}, "title": {"type": "string", "minLength": 8}, "location": {"type": "string", "minLength": 1}, "current_approach": {"type": "string", "minLength": 1}, "alternative": {"type": "string", "minLength": 1}, "benefits": {"type": "string", "minLength": 1}, "tradeoffs": {"type": "string", "minLength": 1}, "project_fit": {"type": "string", "minLength": 1}}}},
+    "checks": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["check_id", "kind", "purpose", "command", "status", "exit_code", "scope", "output_summary", "artifacts", "side_effects"], "properties": {"check_id": {"type": "string", "minLength": 1}, "kind": {"enum": ["test", "build", "analyzer", "reproducer", "fuzz", "benchmark", "static_check", "other"]}, "purpose": {"type": "string", "minLength": 1}, "command": {"type": "string", "minLength": 1}, "status": {"enum": ["passed", "failed", "blocked", "skipped", "timed_out"]}, "exit_code": {"type": ["integer", "null"]}, "scope": {"type": "string", "minLength": 1}, "output_summary": {"type": "string"}, "artifacts": {"type": "array", "items": {"type": "string"}}, "side_effects": {"type": "string", "minLength": 1}}}},
+    "checks_not_run": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["check", "reason"], "properties": {"check": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}}}},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  }
+}

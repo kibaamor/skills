@@ -7,6 +7,7 @@ This repository contains reusable [Agent Skills](https://agentskills.io) that ca
 | Skill | Use it when | Do not use it for |
 | --- | --- | --- |
 | `jira-bugfix-summarizer` | Summarizing an already fixed Jira bug for stakeholders, including impact, root cause, fix records, and validation. | Diagnosing unresolved bugs, implementing fixes, or updating Jira. |
+| `multi-model-code-review` | Coordinating independent model-based code reviews with domain-specific engineering analysis, executable validation, and separate adversarial verification, producing an evidence-backed report. | Implementing fixes, refactoring, or unrelated repository maintenance. |
 | `project-knowledge-generator` | Creating, regenerating, refreshing, or syncing evidence-backed coding-agent knowledge for a repository or named functional module. | Explain-only walkthroughs or copy edits and translations that require no repository evidence. |
 | `skill-reviewer` | Reviewing or auditing an existing Agent Skill and, when explicitly requested in the same review, applying and validating evidence-backed fixes directly in the target skill. | Ordinary code review, new-skill creation, installation, non-skill prompt tuning, or editing a skill to a supplied specification without a review objective. |
 
@@ -28,6 +29,7 @@ Install a single skill:
 
 ```bash
 npx skills@latest add kibaamor/skills --skill jira-bugfix-summarizer
+npx skills@latest add kibaamor/skills --skill multi-model-code-review
 npx skills@latest add kibaamor/skills --skill project-knowledge-generator
 npx skills@latest add kibaamor/skills --skill skill-reviewer
 ```

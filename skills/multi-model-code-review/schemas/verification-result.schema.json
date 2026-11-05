@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:multi-model-code-review:verification-result:2.1",
+  "title": "Verification Reviewer Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "review_status", "summary", "finding_assessments", "recommendation_assessments", "checks", "checks_not_run", "limitations"],
+  "properties": {
+    "schema_version": {"const": "2.1"},
+    "review_status": {"enum": ["complete", "partial", "blocked"]},
+    "summary": {"type": "string", "minLength": 1},
+    "finding_assessments": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["candidate_id", "verdict", "rationale", "evidence"], "properties": {"candidate_id": {"type": "string", "pattern": "^C-F-[0-9]{3,}$"}, "verdict": {"enum": ["confirmed", "rejected", "uncertain", "not_verifiable"]}, "rationale": {"type": "string", "minLength": 1}, "evidence": {"type": "array", "items": {"type": "string"}}}}},
+    "recommendation_assessments": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["candidate_id", "verdict", "rationale", "evidence"], "properties": {"candidate_id": {"type": "string", "pattern": "^C-R-[0-9]{3,}$"}, "verdict": {"enum": ["worthwhile", "optional", "not_better", "context_dependent", "not_verifiable"]}, "rationale": {"type": "string", "minLength": 1}, "evidence": {"type": "array", "items": {"type": "string"}}}}},
+    "checks": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["check_id", "kind", "purpose", "command", "status", "exit_code", "scope", "output_summary", "artifacts", "side_effects"], "properties": {"check_id": {"type": "string", "minLength": 1}, "kind": {"enum": ["test", "build", "analyzer", "reproducer", "fuzz", "benchmark", "static_check", "other"]}, "purpose": {"type": "string", "minLength": 1}, "command": {"type": "string", "minLength": 1}, "status": {"enum": ["passed", "failed", "blocked", "skipped", "timed_out"]}, "exit_code": {"type": ["integer", "null"]}, "scope": {"type": "string", "minLength": 1}, "output_summary": {"type": "string"}, "artifacts": {"type": "array", "items": {"type": "string"}}, "side_effects": {"type": "string", "minLength": 1}}}},
+    "checks_not_run": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["check", "reason"], "properties": {"check": {"type": "string", "minLength": 1}, "reason": {"type": "string", "minLength": 1}}}},
+    "limitations": {"type": "array", "items": {"type": "string"}}
+  }
+}
