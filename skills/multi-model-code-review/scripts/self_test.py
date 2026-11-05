@@ -44,7 +44,7 @@ def main():
             output = tmp / f"{role}.rendered.txt"
             p = run([SCRIPTS / "render_prompt.py", "--template", template, "--values", value_file, "--output", output])
             t.check(f"{role}: template renders", p.returncode == 0, p.stderr)
-            actual = output.read_text(encoding="utf-8") if output.exists() else ""
+            actual = output.read_bytes().decode("utf-8") if output.exists() else ""
             rendered[role] = actual; values_paths[role] = value_file
             capture = tmp / f"{role}.capture.txt"; capture.write_text(actual, encoding="utf-8", newline="")
             p = run([SCRIPTS / "validate_prompt.py", "--role", role, "--template", template, "--values", value_file, "--actual-prompt", capture])
@@ -105,6 +105,15 @@ def main():
         invalid_check = json.loads(dr.read_text()); invalid_check["findings"][0]["severity"] = "high"; invalid_check["checks"][0]["exit_code"] = 4; write_json(dr, invalid_check)
         p = run([SCRIPTS / "validate_review_output.py", "--role", "discovery", "--schema", SCHEMAS / "discovery-result.schema.json", "--input", dr])
         t.check("inconsistent passed check exit code rejected", p.returncode != 0)
+        null_check = json.loads(dr.read_text()); null_check["checks"][0]["exit_code"] = None; write_json(dr, null_check)
+        p = run([SCRIPTS / "validate_review_output.py", "--role", "discovery", "--schema", SCHEMAS / "discovery-result.schema.json", "--input", dr])
+        t.check("passed non-process check with null exit_code accepted", p.returncode == 0, p.stdout + p.stderr)
+        failed_null = json.loads(dr.read_text()); failed_null["checks"][0]["status"] = "failed"; failed_null["checks"][0]["exit_code"] = None; write_json(dr, failed_null)
+        p = run([SCRIPTS / "validate_review_output.py", "--role", "discovery", "--schema", SCHEMAS / "discovery-result.schema.json", "--input", dr])
+        t.check("failed non-process check with null exit_code accepted", p.returncode == 0, p.stdout + p.stderr)
+        failed_zero = json.loads(dr.read_text()); failed_zero["checks"][0]["exit_code"] = 0; write_json(dr, failed_zero)
+        p = run([SCRIPTS / "validate_review_output.py", "--role", "discovery", "--schema", SCHEMAS / "discovery-result.schema.json", "--input", dr])
+        t.check("failed check with exit_code 0 rejected", p.returncode != 0)
         duplicate_key = tmp / "duplicate-key.json"; duplicate_key.write_text('{"schema_version":"2.1","schema_version":"2.1"}', encoding="utf-8")
         p = run([SCRIPTS / "validate_review_output.py", "--role", "discovery", "--schema", SCHEMAS / "discovery-result.schema.json", "--input", duplicate_key])
         t.check("duplicate JSON keys rejected", p.returncode != 0)
@@ -128,6 +137,10 @@ def main():
         p = run(args); t.check("unexpected candidate assessment rejected", p.returncode != 0)
         invalid_v = json.loads(vr.read_text()); invalid_v["finding_assessments"][0]["candidate_id"] = "C-F-001"; invalid_v["finding_assessments"].append(invalid_v["finding_assessments"][0]); write_json(vr, invalid_v)
         p = run(args); t.check("duplicate candidate assessment rejected", p.returncode != 0)
+        v_null_check = json.loads(vr.read_text()); v_null_check["finding_assessments"].pop()
+        v_null_check["checks"] = [{"check_id": "V-01", "kind": "other", "purpose": "Inspect catalog", "command": "rider tool call (no process)", "status": "passed", "exit_code": None, "scope": "Catalog inspection", "output_summary": "Observed directly", "artifacts": [], "side_effects": "Read-only"}]
+        write_json(vr, v_null_check)
+        p = run(args); t.check("verification passed non-process check with null exit_code accepted", p.returncode == 0, p.stdout + p.stderr)
 
     print(f"\n{t.passed} passed; {len(t.failed)} failed")
     return 0 if not t.failed else 1

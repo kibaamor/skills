@@ -69,6 +69,14 @@ def validate_schema(value, schema, path="$", errors=None):
             if key in value: validate_schema(value[key], child_schema, f"{path}.{key}", errors)
     return errors
 
+def check_exit_code_errors(checks, errors):
+    for i, item in enumerate(checks):
+        status, code = item.get("status"), item.get("exit_code")
+        if status == "passed" and not (code == 0 or code is None):
+            errors.append(f"$.checks[{i}]: passed requires exit_code 0 (process) or null (non-process check)")
+        if status == "failed" and not ((isinstance(code, int) and not isinstance(code, bool) and code != 0) or code is None):
+            errors.append(f"$.checks[{i}]: failed requires a non-zero integer exit_code (process) or null (non-process check)")
+
 def semantic_checks(data, role, expected):
     errors = []
     if role == "discovery":
@@ -82,10 +90,7 @@ def semantic_checks(data, role, expected):
                     errors.append(f"$.{array_name}[{i}].local_id: expected prefix {prefix}")
         check_ids = [x.get("check_id") for x in data.get("checks", [])]
         if len(check_ids) != len(set(check_ids)): errors.append("$.checks: duplicate check_id")
-        for i, item in enumerate(data.get("checks", [])):
-            status, code = item.get("status"), item.get("exit_code")
-            if status == "passed" and code != 0: errors.append(f"$.checks[{i}]: passed requires exit_code 0")
-            if status == "failed" and (not isinstance(code, int) or code == 0): errors.append(f"$.checks[{i}]: failed requires a non-zero integer exit_code")
+        check_exit_code_errors(data.get("checks", []), errors)
     else:
         if expected is None:
             errors.append("Verification validation requires --expected-candidates")
@@ -113,10 +118,7 @@ def semantic_checks(data, role, expected):
             errors.append("expected-candidates manifest contains IDs in both categories")
         check_ids = [x.get("check_id") for x in data.get("checks", [])]
         if len(check_ids) != len(set(check_ids)): errors.append("$.checks: duplicate check_id")
-        for i, item in enumerate(data.get("checks", [])):
-            status, code = item.get("status"), item.get("exit_code")
-            if status == "passed" and code != 0: errors.append(f"$.checks[{i}]: passed requires exit_code 0")
-            if status == "failed" and (not isinstance(code, int) or code == 0): errors.append(f"$.checks[{i}]: failed requires non-zero exit_code")
+        check_exit_code_errors(data.get("checks", []), errors)
     return errors
 
 def main() -> int:
