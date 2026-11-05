@@ -49,7 +49,7 @@ Prepare concise shared context containing:
 - relevant architecture, ownership, lifecycle, and data/control-flow facts;
 - concrete risk checks that follow from the actual change.
 
-Convert domain knowledge into checks. For example, do not merely say “understand HTTP/2”; identify the stream states, trailer rules, body completion/error paths, and framing behavior relevant to the changed code. Mark unknowns. Do not invent requirements or infer technology semantics from filenames alone.
+Convert domain knowledge into checks. For example, do not merely say "understand HTTP/2"; identify the stream states, trailer rules, body completion/error paths, and framing behavior relevant to the changed code. Mark unknowns. Do not invent requirements or infer technology semantics from filenames alone.
 
 Load `references/domain-review-guidance.md` only for the areas relevant to the change.
 
